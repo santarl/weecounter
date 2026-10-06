@@ -1,0 +1,53 @@
+name: release
+on: workflow_dispatch
+permissions:
+  contents: write
+concurrency: release
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Compute next version (v1, v2, v3, ...)
+        id: v
+        run: |
+          LAST=$(git tag -l 'v[0-9]*' | sed 's/^v//' | sort -n | tail -1)
+          echo "n=$(( ${LAST:-0} + 1 ))" >> "$GITHUB_OUTPUT"
+
+      - name: Bump versionCode/versionName and tag
+        run: |
+          N=${{ steps.v.outputs.n }}
+          sed -i -E "s/versionCode [0-9]+/versionCode $N/; s/versionName '[^']*'/versionName '$N'/" app/build.gradle
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release v$N"
+          git tag "v$N"
+
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.9' }
+      - name: Decode keystore
+        env: { KS_B64: '${{ secrets.KEYSTORE_B64 }}' }
+        run: echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+      - name: Build signed APK
+        env:
+          KS_PATH: ${{ runner.temp }}/release.jks
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: gradle assembleRelease --no-daemon
+      - name: Verify signature
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)/apksigner verify --verbose "$APK"
+          cp "$APK" weecounter-v${{ steps.v.outputs.n }}.apk
+          ls -l weecounter-v${{ steps.v.outputs.n }}.apk
+
+      # Push only after a successful build so failures leave no stray tags
+      - name: Push commit and tag
+        run: git push origin "HEAD:${{ github.ref_name }}" "v${{ steps.v.outputs.n }}"
+      - name: Publish release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: gh release create "v${{ steps.v.outputs.n }}" "weecounter-v${{ steps.v.outputs.n }}.apk" --title "v${{ steps.v.outputs.n }}" --generate-notes
