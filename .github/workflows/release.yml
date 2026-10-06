@@ -16,7 +16,7 @@ jobs:
           LAST=$(git tag -l 'v[0-9]*' | sed 's/^v//' | sort -n | tail -1)
           echo "n=$(( ${LAST:-0} + 1 ))" >> "$GITHUB_OUTPUT"
 
-      - name: Bump versionCode/versionName and tag
+      - name: Bump versionCode/versionName and tag (local only)
         run: |
           N=${{ steps.v.outputs.n }}
           sed -i -E "s/versionCode [0-9]+/versionCode $N/; s/versionName '[^']*'/versionName '$N'/" app/build.gradle
@@ -45,9 +45,11 @@ jobs:
           cp "$APK" weecounter-v${{ steps.v.outputs.n }}.apk
           ls -l weecounter-v${{ steps.v.outputs.n }}.apk
 
-      # Push only after a successful build so failures leave no stray tags
-      - name: Push commit and tag
-        run: git push origin "HEAD:${{ github.ref_name }}" "v${{ steps.v.outputs.n }}"
+      # Push only the tag (not the branch): main history stays clean, the tag
+      # still points at a commit with the right versionCode. Pushed after a
+      # successful build so failures leave no stray tags.
+      - name: Push tag
+        run: git push origin "v${{ steps.v.outputs.n }}"
       - name: Publish release
         env: { GH_TOKEN: '${{ github.token }}' }
         run: gh release create "v${{ steps.v.outputs.n }}" "weecounter-v${{ steps.v.outputs.n }}.apk" --title "v${{ steps.v.outputs.n }}" --generate-notes
