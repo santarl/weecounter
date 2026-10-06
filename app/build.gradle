@@ -1,0 +1,32 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'dev.tap.counter'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'dev.tap.counter'
+        minSdk 26          // v1 signing dropped, native lambdas/VibrationEffect
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+    signingConfigs {
+        release {
+            if (System.getenv('KS_PATH')) {
+                storeFile file(System.getenv('KS_PATH'))
+                storePassword System.getenv('KS_PASS')
+                keyAlias System.getenv('KS_ALIAS')
+                keyPassword System.getenv('KS_PASS')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+            if (System.getenv('KS_PATH')) signingConfig signingConfigs.release
+        }
+    }
+    dependenciesInfo { includeInApk = false; includeInBundle = false } // no signing blob, reproducible
+    lint { checkReleaseBuilds = false; abortOnError = false }
+}
