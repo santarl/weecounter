@@ -8,7 +8,7 @@ android {
         minSdk 26          // v1 signing dropped, native lambdas/VibrationEffect
         targetSdk 35
         versionCode 1
-        versionName '1.0'
+        versionName '1'
     }
     signingConfigs {
         release {
