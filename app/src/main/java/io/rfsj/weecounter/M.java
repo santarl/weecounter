@@ -15,18 +15,20 @@ import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
-public class M extends Activity implements View.OnClickListener, View.OnLongClickListener {
-    // {pref key, default, settings label}; indices 0..8 are used below and in S
+public class M extends Activity implements View.OnClickListener, View.OnLongClickListener, Runnable {
+    // {pref key, default, settings label}; indices 0..9 are used below and in S
+    // (the first five are numeric fields)
     static final String[][] D = {
         {"fs", "96", "Font size (sp)"},
         {"mx", "0", "Max count (0 = no limit)"},
-        {"st", "100", "Change colour every (count)"},
+        {"st", "100", "Change number colour every (count)"},
         {"sz", "24", "Dot / tally size (dp)"},
+        {"ps", "6", "Pixel shift against burn-in (dp, 0 = off)"},
         {"cl", "FFFFFF 00E676 40C4FF FFD740 FF5252 E040FB", "Colours (hex, space separated)"},
         {"vt", "12", "Vibration: tap"},
         {"vh", "40 60 40", "Vibration: hold (panel / counting view)"},
         {"vr", "80", "Vibration: reset"},
-        {"vl", "150 80 150", "Vibration: max reached / screen full"}};
+        {"vl", "150 80 150", "Vibration: max reached / lap complete"}};
 
     // counting views: 0 blackout, 1 dots, 2 tally
     static final String[] NM = {"blackout", "dots", "tally"};
@@ -39,7 +41,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     Vibrator v;
     VibrationEffect vt, vh, vr, vl;
     int[] cl;
-    int n, mx, st, mode;
+    int n, mx, st, mode, ps, sh;
     boolean cv; // true = counting view shown, false = panel (number + buttons)
 
     @Override protected void onCreate(Bundle b) {
@@ -108,7 +110,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     int[] cs() {
         try {
-            String[] a = g(4).trim().split("\\s+");
+            String[] a = g(5).trim().split("\\s+");
             int[] r = new int[a.length];
             for (int j = 0; j < a.length; j++)
                 r[j] = 0xFF000000 | (int) Long.parseLong(a[j].replace("#", ""), 16);
@@ -139,22 +141,43 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         mx = num(1);
         st = Math.max(1, num(2));
         c.sz = dp(Math.max(6, num(3)));
+        ps = Math.max(0, num(4));
         t.setTextSize(Math.max(8, num(0)));
         cl = cs();
-        vt = fx(5);
-        vh = fx(6);
-        vr = fx(7);
-        vl = fx(8);
+        c.cl = cl;
+        vt = fx(6);
+        vh = fx(7);
+        vr = fx(8);
+        vl = fx(9);
         if (p.getBoolean("aw", true))
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         draw();
+        f.removeCallbacks(this);
+        run();
     }
 
     @Override protected void onPause() {
         super.onPause();
+        f.removeCallbacks(this);
         p.edit().putInt("n", n).putInt("md", mode).apply();
+    }
+
+    // burn-in protection: every 15 s nudge everything 1dp along a square loop
+    // of side 2*ps dp (a full loop takes a few minutes)
+    @Override public void run() {
+        int l = Math.max(1, 2 * ps), k = sh++ % (4 * l), s = k / l, q = k % l;
+        int x = s == 0 ? q - ps : s == 1 ? ps : s == 2 ? ps - q : -ps;
+        int y = s == 0 ? -ps : s == 1 ? q - ps : s == 2 ? ps : ps - q;
+        int d = dp(1);
+        for (View w : ui) {
+            w.setTranslationX(x * d);
+            w.setTranslationY(y * d);
+        }
+        c.setTranslationX(x * d);
+        c.setTranslationY(y * d);
+        if (ps > 0) f.postDelayed(this, 15000);
     }
 
     // hide status + navigation bars; swipe from the edge shows them briefly
@@ -171,14 +194,19 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         for (View x : ui) x.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);
         c.mode = mode;
         c.n = n;
-        c.p.setColor(col);
         c.setVisibility(cv && mode > 0 ? View.VISIBLE : View.INVISIBLE);
         c.invalidate();
     }
 
-    // true when the next tap must not count: max reached, or no room left on screen
+    // true when the max count is reached (dots / tally just start a new lap instead)
     boolean full() {
-        return (mx > 0 && n >= mx) || (mode > 0 && !c.put(n + 1, null));
+        return mx > 0 && n >= mx;
+    }
+
+    // true when the count just filled the screen exactly
+    boolean lap() {
+        int k = mode > 0 ? c.cap() : 0;
+        return k > 0 && n % k == 0;
     }
 
     @Override public void onClick(View x) {
@@ -200,7 +228,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             return;
         } else {
             n++;
-            z(full() ? vl : vt);
+            z(full() || lap() ? vl : vt);
         }
         draw();
     }
@@ -217,54 +245,54 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         return true;
     }
 
-    // draws the dots / tally counting views
+    // draws the dots / tally counting views. When the screen is full the next
+    // marks overwrite the earliest ones in the next colour of the palette.
     static class V extends View {
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        int mode, n, sz;
+        int[] cl;
+        int mode, n, sz, cols, rows;
+        float pw, ph; // grid pitch
 
         V(Context x) {
             super(x);
-            p.setTextAlign(Paint.Align.CENTER);
+            p.setStrokeCap(Paint.Cap.ROUND);
+        }
+
+        // marks that fit on screen (also sets the grid geometry)
+        int cap() {
+            float m = sz / 2f;
+            pw = mode == 1 ? sz : sz * 2.1f;  // tally: one cell per group of five
+            ph = mode == 1 ? sz : sz * 1.7f;
+            cols = Math.max(0, (int) ((getWidth() - 2 * m) / pw));
+            rows = Math.max(0, (int) ((getHeight() - 2 * m) / ph));
+            return cols * rows * (mode == 1 ? 1 : 5);
         }
 
         @Override protected void onDraw(Canvas c) {
-            if (mode > 0) put(n, c);
-        }
-
-        // lays out k marks and draws them when c != null; true if they all fit
-        boolean put(int k, Canvas c) {
-            float m = sz / 2f, w = getWidth() - 2 * m, h = getHeight() - 2 * m;
-            p.setTextSize(sz);
-            if (mode == 1) { // dots: left to right, top to bottom
-                int cols = Math.max(1, (int) (w / sz)), rows = (int) (h / sz);
-                if (c != null) {
-                    float ox = (getWidth() - cols * sz) / 2f, oy = (getHeight() - rows * sz) / 2f;
-                    int d = Math.min(k, cols * rows);
-                    for (int i = 0; i < d; i++)
-                        c.drawCircle(ox + (i % cols + .5f) * sz, oy + (i / cols + .5f) * sz, sz * .3f, p);
+            int cap = cap();
+            if (mode == 0 || cap == 0 || cl == null) return;
+            float ox = (getWidth() - cols * pw) / 2f, oy = (getHeight() - rows * ph) / 2f;
+            int lap = n / cap, pos = n % cap;
+            p.setStrokeWidth(sz * .13f);
+            for (int i = 0, e = Math.min(n, cap); i < e; i++) {
+                // marks before pos belong to the current lap, the rest to the previous one
+                p.setColor(cl[(i < pos ? lap : lap - 1) % cl.length]);
+                if (mode == 1) {
+                    c.drawCircle(ox + (i % cols + .5f) * pw, oy + (i / cols + .5f) * ph, sz * .3f, p);
+                } else {
+                    // four bars, the fifth mark is the diagonal strike
+                    int g = i / 5, k = i % 5;
+                    float gw = sz * 1.5f, bh = sz * 1.2f;
+                    float x = ox + (g % cols) * pw + (pw - gw) / 2f;
+                    float y = oy + (g / cols) * ph + (ph - bh) / 2f;
+                    if (k < 4) {
+                        float bx = x + gw * (.1f + .267f * k);
+                        c.drawLine(bx, y, bx, y + bh, p);
+                    } else {
+                        c.drawLine(x - gw * .03f, y + bh * .8f, x + gw * 1.03f, y + bh * .2f, p);
+                    }
                 }
-                return k <= cols * rows;
             }
-            // tally: every 5th mark turns the 4 bars into one glyph, then a gap
-            float lh = sz * 1.4f, x = 0;
-            int line = 0, rows = (int) (h / lh), g = k / 5;
-            for (int i = 0; i < g * 2 + k % 5; i++) {
-                boolean five = i < 2 * g && i % 2 == 0, gap = i < 2 * g && i % 2 == 1;
-                float tw = five ? sz : gap ? sz * .5f : sz * .35f;
-                if (gap) {
-                    if (x > 0) x += tw; // a gap never starts a line
-                    continue;
-                }
-                if (x + tw > w) {
-                    line++;
-                    x = 0;
-                }
-                if (line >= rows) return false;
-                if (c != null)
-                    c.drawText(five ? "\u534c" : "|", m + x + tw / 2, m + line * lh + sz, p);
-                x += tw;
-            }
-            return true;
         }
     }
 }

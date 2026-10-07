@@ -31,7 +31,7 @@ public class S extends Activity implements View.OnClickListener {
             e[i] = new EditText(this);
             e[i].setTextColor(0xFFFFFFFF);
             e[i].setSingleLine();
-            if (i < 4) e[i].setInputType(2); // numbers only
+            if (i < 5) e[i].setInputType(2); // numbers only
             l.addView(e[i]);
         }
         aw = new CheckBox(this);
