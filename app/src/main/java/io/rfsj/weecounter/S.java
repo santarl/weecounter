@@ -31,7 +31,7 @@ public class S extends Activity implements View.OnClickListener {
             e[i] = new EditText(this);
             e[i].setTextColor(0xFFFFFFFF);
             e[i].setSingleLine();
-            if (i < 3) e[i].setInputType(2); // numbers only
+            if (i < 4) e[i].setInputType(2); // numbers only
             l.addView(e[i]);
         }
         aw = new CheckBox(this);
@@ -39,7 +39,7 @@ public class S extends Activity implements View.OnClickListener {
         aw.setTextColor(0xFFFFFFFF);
         l.addView(aw);
         dk = new CheckBox(this);
-        dk.setText("Start with black screen");
+        dk.setText("Start in counting view (not panel)");
         dk.setTextColor(0xFFFFFFFF);
         l.addView(dk);
         df = tv("RESET TO DEFAULTS", 0xFFFF5252, m);
