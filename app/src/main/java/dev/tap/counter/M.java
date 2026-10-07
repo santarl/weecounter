@@ -1,70 +1,186 @@
 package dev.tap.counter;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.view.Gravity;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 public class M extends Activity implements View.OnClickListener, View.OnLongClickListener {
-    // colour changes every 100 taps, cycling through this palette
-    static final int[] C = {0xFFFFFFFF, 0xFF00E676, 0xFF40C4FF, 0xFFFFD740, 0xFFFF5252, 0xFFE040FB};
-    int n;
-    TextView t, r;
+    // {pref key, default, settings label}; indices 0..7 are used below and in S
+    static final String[][] D = {
+        {"fs", "96", "Font size (sp)"},
+        {"mx", "0", "Max count (0 = no limit)"},
+        {"st", "100", "Change colour every (count)"},
+        {"cl", "FFFFFF 00E676 40C4FF FFD740 FF5252 E040FB", "Colours (hex, space separated)"},
+        {"vt", "12", "Vibration: tap"},
+        {"vh", "40 60 40", "Vibration: hold (show/hide UI)"},
+        {"vr", "80", "Vibration: reset"},
+        {"vl", "150 80 150", "Vibration: max reached"}};
+
+    SharedPreferences p;
+    FrameLayout f;
+    TextView t, se, dn, rs;
+    View[] ui;
     Vibrator v;
+    VibrationEffect vt, vh, vr, vl;
+    int[] cl;
+    int n, mx, st;
+    boolean dark;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().setStatusBarColor(0xFF000000);
         getWindow().setNavigationBarColor(0xFF000000);
+        p = getSharedPreferences("p", 0);
+        n = p.getInt("n", 0);
+        dark = p.getBoolean("dk", false);
         v = getSystemService(Vibrator.class);
+
+        // the whole screen is the tap / hold target; labels below are non-clickable
+        f = new FrameLayout(this);
+        f.setBackgroundColor(0xFF000000);
+        f.setOnClickListener(this);
+        f.setOnLongClickListener(this);
 
         t = new TextView(this);
         t.setGravity(Gravity.CENTER);
-        t.setTextSize(96);
-        t.setOnClickListener(this);
-        t.setOnLongClickListener(this);
-
-        r = new TextView(this);
-        r.setText("HOLD TO RESET");
-        r.setTextColor(0xFF444444);
-        r.setPadding(64, 32, 64, 32);
-        r.setOnLongClickListener(this);
-
-        FrameLayout f = new FrameLayout(this);
-        f.setBackgroundColor(0xFF000000);
         f.addView(t, new FrameLayout.LayoutParams(-1, -1));
-        FrameLayout.LayoutParams p = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        p.bottomMargin = 160;
-        f.addView(r, p);
+
+        se = b("settings", 14, Gravity.TOP | Gravity.START);
+        se.setOnClickListener(this);
+        dn = b("-1", 28, Gravity.TOP | Gravity.END);
+        dn.setOnClickListener(this);
+        rs = b("HOLD TO RESET", 14, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        rs.setOnLongClickListener(this);
+
+        ui = new View[]{t, se, dn, rs};
         setContentView(f);
+    }
+
+    TextView b(String s, int sp, int g) {
+        TextView x = new TextView(this);
+        x.setText(s);
+        x.setTextSize(sp);
+        x.setTextColor(0xFF666666);
+        x.setPadding(dp(24), dp(16), dp(24), dp(16));
+        FrameLayout.LayoutParams l = new FrameLayout.LayoutParams(-2, -2, g);
+        l.setMargins(0, dp(40), 0, dp(40));
+        f.addView(x, l);
+        return x;
+    }
+
+    int dp(int x) {
+        return (int) (x * getResources().getDisplayMetrics().density + .5f);
+    }
+
+    String g(int i) {
+        return p.getString(D[i][0], D[i][1]);
+    }
+
+    int num(int i) {
+        try {
+            return Integer.parseInt(g(i).trim());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    int[] cs() {
+        try {
+            String[] a = g(3).trim().split("\\s+");
+            int[] r = new int[a.length];
+            for (int j = 0; j < a.length; j++)
+                r[j] = 0xFF000000 | (int) Long.parseLong(a[j].replace("#", ""), 16);
+            return r;
+        } catch (Exception e) {
+            return new int[]{0xFFFFFFFF};
+        }
+    }
+
+    // "40 60 40" = buzz 40ms, pause 60ms, buzz 40ms. Invalid/empty = off.
+    VibrationEffect fx(int i) {
+        try {
+            String[] a = g(i).trim().split("[^0-9]+");
+            long[] w = new long[a.length + 1];
+            for (int j = 0; j < a.length; j++) w[j + 1] = Long.parseLong(a[j]);
+            return VibrationEffect.createWaveform(w, -1);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    void z(VibrationEffect e) {
+        if (e != null) v.vibrate(e);
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        mx = num(1);
+        st = Math.max(1, num(2));
+        t.setTextSize(Math.max(8, num(0)));
+        cl = cs();
+        vt = fx(4);
+        vh = fx(5);
+        vr = fx(6);
+        vl = fx(7);
+        if (p.getBoolean("aw", true))
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         draw();
+    }
+
+    @Override protected void onPause() {
+        super.onPause();
+        p.edit().putInt("n", n).apply();
+    }
+
+    // hide status + navigation bars; swipe from the edge shows them briefly
+    @Override public void onWindowFocusChanged(boolean h) {
+        super.onWindowFocusChanged(h);
+        if (h) f.setSystemUiVisibility(0x1706);
     }
 
     void draw() {
         t.setText(Integer.toString(n));
-        t.setTextColor(C[(n / 100) % C.length]);
+        t.setTextColor(cl[(n / st) % cl.length]);
+        for (View x : ui) x.setVisibility(dark ? View.INVISIBLE : View.VISIBLE);
     }
 
     @Override public void onClick(View x) {
-        n++;
+        if (x == se) {
+            startActivity(new Intent(this, S.class));
+            return;
+        }
+        if (x == dn) {
+            if (n > 0) n--;
+            z(vt);
+        } else if (mx > 0 && n >= mx) {
+            z(vl);
+            return;
+        } else {
+            n++;
+            z(mx > 0 && n >= mx ? vl : vt);
+        }
         draw();
-        v.vibrate(VibrationEffect.createOneShot(12, -1));
     }
 
     @Override public boolean onLongClick(View x) {
-        if (x == r) {
+        if (x == rs) {
             n = 0;
-            draw();
-            v.vibrate(VibrationEffect.createOneShot(80, -1));
+            z(vr);
         } else {
-            Toast.makeText(this, Integer.toString(n), Toast.LENGTH_SHORT).show();
-            v.vibrate(VibrationEffect.createWaveform(new long[]{0, 40, 60, 40}, -1));
+            dark = !dark;
+            z(vh);
         }
+        draw();
         return true;
     }
 }

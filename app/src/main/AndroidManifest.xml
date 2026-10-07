@@ -2,7 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.VIBRATE"/>
     <application
-        android:label="Tap"
+        android:label="weecounter"
+        android:icon="@mipmap/ic"
         android:allowBackup="false"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
         <activity
@@ -15,5 +16,9 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <activity
+            android:name=".S"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"/>
     </application>
 </manifest>
