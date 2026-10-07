@@ -1,4 +1,4 @@
-package dev.tap.counter;
+package io.rfsj.weecounter;
 
 import android.app.Activity;
 import android.content.SharedPreferences;

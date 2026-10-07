@@ -1,10 +1,10 @@
 plugins { id 'com.android.application' }
 
 android {
-    namespace 'dev.tap.counter'
+    namespace 'io.rfsj.weecounter'
     compileSdk 35
     defaultConfig {
-        applicationId 'dev.tap.counter'
+        applicationId 'io.rfsj.weecounter'
         minSdk 26          // v1 signing dropped, native lambdas/VibrationEffect
         targetSdk 35
         versionCode 1
