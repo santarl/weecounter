@@ -7,8 +7,8 @@ android {
         applicationId 'io.rfsj.weecounter'
         minSdk 26          // v1 signing dropped, native lambdas/VibrationEffect
         targetSdk 35
-        versionCode 1
-        versionName '1.0'
+        versionCode 2
+        versionName '2'
     }
     signingConfigs {
         release {
