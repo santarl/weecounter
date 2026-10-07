@@ -1,0 +1,1 @@
+Tiny AMOLED-black tap counter with haptics, dots and tally views.
