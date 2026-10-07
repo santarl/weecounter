@@ -24,6 +24,7 @@ android {
         release {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+            vcsInfo.include = false // no git info in the APK, keeps builds reproducible
             if (System.getenv('KS_PATH')) signingConfig signingConfigs.release
         }
     }
