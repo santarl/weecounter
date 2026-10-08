@@ -8,7 +8,14 @@ A tiny tap counter for AMOLED screens. Pure Java, no libraries, no network, tiny
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1.jpg" width="200">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/2.jpg" width="200">
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3.jpg" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/4.jpg" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/5.jpg" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/6.jpg" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/7.jpg" width="200">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/8.jpg" width="200">
 </p>
+
+(yes the third screenshot is a feature, you can count with ur screen off ish on amoled displays)
 
 ## Use
 
