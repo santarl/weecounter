@@ -1,6 +1,7 @@
 package io.rfsj.weecounter;
 
 import android.app.Activity;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -39,6 +40,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     TextView t, se, rs, dn, vw;
     View[] ui;
     Vibrator v;
+    NotificationManager nm;
     VibrationEffect vt, vh, vr, vl;
     int[] cl;
     int n, mx, st, mode, ps, sh;
@@ -53,6 +55,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         mode = p.getInt("md", 0);
         cv = p.getBoolean("dk", false);
         v = getSystemService(Vibrator.class);
+        nm = getSystemService(NotificationManager.class);
 
         // the whole screen is the tap / hold target; everything else is non-clickable
         f = new FrameLayout(this);
@@ -156,12 +159,36 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         draw();
         f.removeCallbacks(this);
         run();
+        undo(); // clean up after a crash, then (re)apply
+        dnd();
     }
 
     @Override protected void onPause() {
         super.onPause();
         f.removeCallbacks(this);
+        undo();
         p.edit().putInt("n", n).putInt("md", mode).apply();
+    }
+
+    // Do Not Disturb while the app is in front (opt-in, chosen in settings).
+    // "ds" = filter to go back to, "da" = filter we applied; both live on disk so a
+    // crash can be cleaned up on the next launch.
+    void dnd() {
+        int m = p.getInt("dn", 0);
+        if (m == 0 || !nm.isNotificationPolicyAccessGranted()) return;
+        int cur = nm.getCurrentInterruptionFilter();
+        int want = m == 1 ? NotificationManager.INTERRUPTION_FILTER_PRIORITY
+                : NotificationManager.INTERRUPTION_FILTER_ALARMS;
+        p.edit().putInt("ds", cur == 0 ? 1 : cur).putInt("da", want).commit();
+        nm.setInterruptionFilter(want);
+    }
+
+    // restore the previous filter, but only if nobody changed it since we set it
+    void undo() {
+        if (p.contains("ds") && nm.isNotificationPolicyAccessGranted()
+                && nm.getCurrentInterruptionFilter() == p.getInt("da", 0))
+            nm.setInterruptionFilter(p.getInt("ds", 1));
+        p.edit().remove("ds").remove("da").commit();
     }
 
     // burn-in protection: every 15 s nudge everything 1dp along a square loop

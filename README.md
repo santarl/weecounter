@@ -20,6 +20,8 @@ A tiny tap counter for AMOLED screens. Pure Java, no libraries, no network, tiny
 
 The display drifts a few pixels every 15 seconds to protect AMOLED screens from burn-in (configurable, can be turned off).
 
+Optional (off by default): turn on Do Not Disturb while the app is open, either "priority only" or "alarms only". The previous setting is restored when you leave. Needs Do Not Disturb access, which you grant in Android's settings.
+
 ## Build
 
 ```
