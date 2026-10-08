@@ -37,9 +37,17 @@ public class S extends Activity implements View.OnClickListener {
         l.setOrientation(LinearLayout.VERTICAL);
         l.setPadding(m, m, m, m);
 
-        l.addView(tv("Vibration notation: milliseconds, alternating buzz and pause. "
-                + "\"40 60 40\" = buzz 40, pause 60, buzz 40. Empty = off.", 0xFF888888, m));
+        dd = tv("", 0xFFFFFFFF, m);
+        dd.setOnClickListener(this);
+        l.addView(dd);
+        dx = tv("", 0xFF888888, m / 4);
+        l.addView(dx);
         for (int i = 0; i < e.length; i++) {
+            if (i == 6)
+                l.addView(tv("Vibration notation: milliseconds, alternating buzz and pause. "
+                        + "\"40 60 40\" = buzz 40, pause 60, buzz 40. Empty = off. "
+                        + "Vibrations are sent as touch feedback, so they follow your phone's touch feedback setting.",
+                        0xFF888888, m));
             l.addView(tv(M.D[i][2], 0xFFFFFFFF, m));
             e[i] = new EditText(this);
             e[i].setTextColor(0xFFFFFFFF);
@@ -55,12 +63,6 @@ public class S extends Activity implements View.OnClickListener {
         dk.setText("Start in counting view (not panel)");
         dk.setTextColor(0xFFFFFFFF);
         l.addView(dk);
-
-        dd = tv("", 0xFFFFFFFF, m);
-        dd.setOnClickListener(this);
-        l.addView(dd);
-        dx = tv("", 0xFF888888, m / 4);
-        l.addView(dx);
 
         df = tv("RESET TO DEFAULTS", 0xFFFF5252, m);
         df.setOnClickListener(this);

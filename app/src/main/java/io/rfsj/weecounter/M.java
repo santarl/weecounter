@@ -7,13 +7,17 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.media.AudioAttributes;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public class M extends Activity implements View.OnClickListener, View.OnLongClickListener, Runnable {
@@ -34,16 +38,22 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // counting views: 0 blackout, 1 dots, 2 tally
     static final String[] NM = {"blackout", "dots", "tally"};
 
+    // status line above the number, by Do Not Disturb mode (index 0 = off, keeps the line's height)
+    static final String[] DT = {" ", "DND ON - only priority notifications get through",
+        "DND ON - notifications silenced, alarms only"};
+
     SharedPreferences p;
     FrameLayout f;
     V c;
-    TextView t, se, rs, dn, vw;
+    LinearLayout col;
+    TextView t, dt, se, rs, dn, vw;
     View[] ui;
     Vibrator v;
     NotificationManager nm;
     VibrationEffect vt, vh, vr, vl;
     int[] cl;
     int n, mx, st, mode, ps, sh;
+    boolean dnOn; // Do Not Disturb currently applied by us
     boolean cv; // true = counting view shown, false = panel (number + buttons)
 
     @Override protected void onCreate(Bundle b) {
@@ -66,9 +76,20 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         c = new V(this);
         f.addView(c, new FrameLayout.LayoutParams(-1, -1));
 
+        // number with the DND status line above it
+        col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER);
+        dt = new TextView(this);
+        dt.setTextSize(13);
+        dt.setTextColor(0xFFFFB74D);
+        dt.setGravity(Gravity.CENTER);
+        dt.setPadding(dp(24), 0, dp(24), dp(8));
         t = new TextView(this);
         t.setGravity(Gravity.CENTER);
-        f.addView(t, new FrameLayout.LayoutParams(-1, -1));
+        col.addView(dt);
+        col.addView(t);
+        f.addView(col, new FrameLayout.LayoutParams(-1, -1));
 
         se = b("settings", 14, Gravity.TOP | Gravity.START);
         se.setOnClickListener(this);
@@ -79,7 +100,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         vw = b("", 14, Gravity.BOTTOM | Gravity.END);
         vw.setOnClickListener(this);
 
-        ui = new View[]{t, se, rs, dn, vw};
+        ui = new View[]{col, se, rs, dn, vw};
         setContentView(f);
     }
 
@@ -135,8 +156,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
     }
 
+    // sent as touch (haptic) feedback, so Do Not Disturb doesn't mute it
     void z(VibrationEffect e) {
-        if (e != null) v.vibrate(e);
+        if (e == null) return;
+        if (Build.VERSION.SDK_INT >= 33)
+            v.vibrate(e, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH));
+        else
+            v.vibrate(e, new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION).build());
     }
 
     @Override protected void onResume() {
@@ -156,11 +183,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        undo(); // clean up after a crash, then (re)apply
+        dnd();
+        sync();
         draw();
         f.removeCallbacks(this);
         run();
-        undo(); // clean up after a crash, then (re)apply
-        dnd();
     }
 
     @Override protected void onPause() {
@@ -181,6 +209,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 : NotificationManager.INTERRUPTION_FILTER_ALARMS;
         p.edit().putInt("ds", cur == 0 ? 1 : cur).putInt("da", want).commit();
         nm.setInterruptionFilter(want);
+    }
+
+    // is our Do Not Disturb still the active one?
+    void sync() {
+        dnOn = p.contains("ds") && nm.getCurrentInterruptionFilter() == p.getInt("da", 0);
     }
 
     // restore the previous filter, but only if nobody changed it since we set it
@@ -210,7 +243,13 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // hide status + navigation bars; swipe from the edge shows them briefly
     @Override public void onWindowFocusChanged(boolean h) {
         super.onWindowFocusChanged(h);
-        if (h) f.setSystemUiVisibility(0x1706);
+        if (h) {
+            f.setSystemUiVisibility(0x1706);
+            if (cl != null) { // re-check DND, the user may have changed it from the shade
+                sync();
+                draw();
+            }
+        }
     }
 
     void draw() {
@@ -218,6 +257,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         t.setText(Integer.toString(n));
         t.setTextColor(col);
         vw.setText("view: " + NM[mode]);
+        dt.setText(DT[dnOn ? p.getInt("dn", 0) : 0]);
         for (View x : ui) x.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);
         c.mode = mode;
         c.n = n;
