@@ -14,6 +14,7 @@ import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
@@ -50,7 +51,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     NotificationManager nm;
     VibrationEffect vt, vh, vr, vl;
     int[] cl;
-    int n, mx, st, mode, ps, sh;
+    int n, mx, st, mode, ps, sh, vk; // vk: volume keys 0 off, 1 both +1, 2 up +1 / down -1, 3 down +1 / up -1
     boolean dnOn; // Do Not Disturb currently applied by us
     boolean hp;   // send vibrations as touch feedback
     boolean cv; // true = counting view shown, false = panel (number + buttons)
@@ -173,6 +174,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         c.sz = dp(Math.max(6, num(3)));
         ps = Math.max(0, num(4));
         hp = p.getBoolean("hp", false);
+        vk = p.getInt("vk", 0);
         t.setTextSize(Math.max(8, num(0)));
         cl = cs();
         c.cl = cl;
@@ -289,17 +291,40 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             draw();
             return;
         }
-        if (x == dn) {
-            if (n > 0) n--;
-            z(vt);
-        } else if (full()) {
+        if (x == dn) dec();
+        else inc();
+    }
+
+    void inc() {
+        if (full()) {
             z(vl);
             return;
-        } else {
-            n++;
-            z(full() || lap() ? vl : vt);
         }
+        n++;
+        z(full() || lap() ? vl : vt);
         draw();
+    }
+
+    void dec() {
+        if (n > 0) n--;
+        z(vt);
+        draw();
+    }
+
+    // optional volume-key counting; the keys are swallowed while it is on (no repeat while held)
+    @Override public boolean onKeyDown(int k, KeyEvent e) {
+        boolean up = k == KeyEvent.KEYCODE_VOLUME_UP;
+        if (vk == 0 || !up && k != KeyEvent.KEYCODE_VOLUME_DOWN) return super.onKeyDown(k, e);
+        if (e.getRepeatCount() == 0) {
+            if (vk == 1 || vk == 2 && up || vk == 3 && !up) inc();
+            else dec();
+        }
+        return true;
+    }
+
+    @Override public boolean onKeyUp(int k, KeyEvent e) {
+        if (vk != 0 && (k == KeyEvent.KEYCODE_VOLUME_UP || k == KeyEvent.KEYCODE_VOLUME_DOWN)) return true;
+        return super.onKeyUp(k, e);
     }
 
     @Override public boolean onLongClick(View x) {

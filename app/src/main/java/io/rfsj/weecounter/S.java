@@ -3,6 +3,7 @@ package io.rfsj.weecounter;
 import android.app.Activity;
 import android.app.NotificationManager;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.view.View;
@@ -21,12 +22,19 @@ public class S extends Activity implements View.OnClickListener {
         "Turns on Do Not Disturb while this app is open. Everything is silenced, including calls, except "
             + "alarms. Your previous setting is restored when you leave."};
 
+    static final String[] VN = {"OFF", "both buttons +1", "up +1, down -1", "down +1, up -1"};
+    static final String[] VX = {
+        "The volume buttons change the volume as usual.",
+        "Both volume buttons add one to the count.",
+        "Volume up adds one, volume down subtracts one.",
+        "Volume down adds one, volume up subtracts one."};
+
     SharedPreferences p;
     EditText[] e = new EditText[M.D.length];
     CheckBox aw, dk, hp;
-    TextView df, dd, dx;
+    TextView df, dd, dx, vv, vz;
     NotificationManager nm;
-    int dm;
+    int dm, vm;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -42,13 +50,16 @@ public class S extends Activity implements View.OnClickListener {
         l.addView(dd);
         dx = tv("", 0xFF888888, m / 4);
         l.addView(dx);
-        hp = new CheckBox(this);
-        hp.setText("Vibrate as touch feedback");
-        hp.setTextColor(0xFFFFFFFF);
+        hp = cb("Vibrate as touch feedback");
         l.addView(hp);
         l.addView(tv("Only turn this on if Do Not Disturb mutes the vibrations on your phone. "
                 + "They then follow your phone's touch feedback setting, so turning that off silences them.",
                 0xFF888888, 0));
+        vv = tv("", 0xFFFFFFFF, m);
+        vv.setOnClickListener(this);
+        l.addView(vv);
+        vz = tv("", 0xFF888888, m / 4);
+        l.addView(vz);
         for (int i = 0; i < e.length; i++) {
             if (i == 6)
                 l.addView(tv("Vibration notation: milliseconds, alternating buzz and pause. "
@@ -60,13 +71,9 @@ public class S extends Activity implements View.OnClickListener {
             if (i < 5) e[i].setInputType(2); // numbers only
             l.addView(e[i]);
         }
-        aw = new CheckBox(this);
-        aw.setText("Keep screen on");
-        aw.setTextColor(0xFFFFFFFF);
+        aw = cb("Keep screen on");
         l.addView(aw);
-        dk = new CheckBox(this);
-        dk.setText("Start in counting view (not panel)");
-        dk.setTextColor(0xFFFFFFFF);
+        dk = cb("Start in counting view (not panel)");
         l.addView(dk);
 
         df = tv("RESET TO DEFAULTS", 0xFFFF5252, m);
@@ -79,6 +86,15 @@ public class S extends Activity implements View.OnClickListener {
         s.addView(l);
         setContentView(s);
         fill(false);
+    }
+
+    // white tick box so it stays visible on black when checked
+    CheckBox cb(String s) {
+        CheckBox c = new CheckBox(this);
+        c.setText(s);
+        c.setTextColor(0xFFFFFFFF);
+        c.setButtonTintList(ColorStateList.valueOf(0xFFFFFFFF));
+        return c;
     }
 
     TextView tv(String s, int c, int m) {
@@ -96,12 +112,19 @@ public class S extends Activity implements View.OnClickListener {
         dk.setChecked(!d && p.getBoolean("dk", false));
         hp.setChecked(!d && p.getBoolean("hp", false));
         dm = d ? 0 : p.getInt("dn", 0);
+        vm = d ? 0 : p.getInt("vk", 0);
         dnd();
+        vol();
     }
 
     void dnd() {
         dd.setText("Do Not Disturb while open: " + DN[dm] + "  (tap to change)");
         dx.setText(DX[dm]);
+    }
+
+    void vol() {
+        vv.setText("Volume buttons: " + VN[vm] + "  (tap to change)");
+        vz.setText(VX[vm]);
     }
 
     // coming back from the system screen without granting access = Off
@@ -124,6 +147,9 @@ public class S extends Activity implements View.OnClickListener {
                 }
             }
             dnd();
+        } else if (x == vv) {
+            vm = (vm + 1) % VN.length;
+            vol();
         } else {
             fill(true);
         }
@@ -134,6 +160,7 @@ public class S extends Activity implements View.OnClickListener {
         SharedPreferences.Editor x = p.edit();
         for (int i = 0; i < e.length; i++)
             x.putString(M.D[i][0], e[i].getText().toString());
-        x.putBoolean("aw", aw.isChecked()).putBoolean("dk", dk.isChecked()).putBoolean("hp", hp.isChecked()).putInt("dn", dm).apply();
+        x.putBoolean("aw", aw.isChecked()).putBoolean("dk", dk.isChecked()).putBoolean("hp", hp.isChecked())
+                .putInt("dn", dm).putInt("vk", vm).apply();
     }
 }
