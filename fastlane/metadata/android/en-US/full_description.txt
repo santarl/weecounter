@@ -5,7 +5,7 @@ A tiny, fast tap counter built for AMOLED screens. No ads, no tracking, no netwo
 <li>Tap anywhere to count up, with a short vibration as feedback</li>
 <li>Hold anywhere to switch between the control panel and the counting view</li>
 <li>Counting views: pure black (screen looks off while you count), dots, or tally marks</li>
-<li>Dots and tally fill the screen, buzz when it is full and keep counting in the next colour, overwriting the oldest marks</li>
+<li>Dots and tally fill the screen, then drain one mark per tap until the next lap, which changes the colour, buzzes and starts over</li>
 <li>Slow pixel shifting to protect AMOLED screens from burn-in</li>
 <li>-1 button and hold-to-reset on the panel</li>
 <li>Optional counting with the volume buttons</li>
@@ -13,8 +13,8 @@ A tiny, fast tap counter built for AMOLED screens. No ads, no tracking, no netwo
 
 <b>Settings</b>
 <ul>
-<li>Font size, dot/tally size, colours and how often they change</li>
-<li>Optional maximum count</li>
+<li>Font size, dot/tally size, colours and lap length</li>
+<li>Optional "count reached" target that buzzes once; counting continues past it</li>
 <li>Custom vibration patterns for every event, written as plain milliseconds like "40 60 40"</li>
 <li>Keep the screen on while counting</li>
 <li>Optional Do Not Disturb while the app is open (priority only or alarms only), restored when you leave</li>

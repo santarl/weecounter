@@ -21,19 +21,20 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 public class M extends Activity implements View.OnClickListener, View.OnLongClickListener, Runnable {
-    // {pref key, default, settings label}; indices 0..9 are used below and in S
+    // {pref key, default, settings label}; indices 0..10 are used below and in S
     // (the first five are numeric fields)
     static final String[][] D = {
         {"fs", "96", "Font size (sp)"},
-        {"mx", "0", "Max count (0 = no limit)"},
-        {"st", "100", "Change number colour every (count)"},
+        {"mx", "0", "Count reached at (0 = off)"},
+        {"st", "100", "Lap length (count, changes colour)"},
         {"sz", "24", "Dot / tally size (dp)"},
         {"ps", "6", "Pixel shift against burn-in (dp, 0 = off)"},
         {"cl", "FFFFFF 00E676 40C4FF FFD740 FF5252 E040FB", "Colours (hex, space separated)"},
-        {"vt", "12", "Vibration: tap"},
+        {"vt", "15", "Vibration: tap"},
         {"vh", "40 60 40", "Vibration: hold (panel / counting view)"},
         {"vr", "80", "Vibration: reset"},
-        {"vl", "150 80 150", "Vibration: max reached / lap complete"}};
+        {"vl", "200 1 10 1 10 1 10", "Vibration: count reached"},
+        {"vc", "50 50 50 50 50", "Vibration: lap"}};
 
     // counting views: 0 blackout, 1 dots, 2 tally
     static final String[] NM = {"blackout", "dots", "tally"};
@@ -49,7 +50,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     View[] ui;
     Vibrator v;
     NotificationManager nm;
-    VibrationEffect vt, vh, vr, vl;
+    VibrationEffect vt, vh, vr, vl, vc;
     int[] cl;
     int n, mx, st, mode, ps, sh, vk; // vk: volume keys 0 off, 1 both +1, 2 up +1 / down -1, 3 down +1 / up -1
     boolean dnOn; // Do Not Disturb currently applied by us
@@ -171,6 +172,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         super.onResume();
         mx = num(1);
         st = Math.max(1, num(2));
+        c.st = st;
         c.sz = dp(Math.max(6, num(3)));
         ps = Math.max(0, num(4));
         hp = p.getBoolean("hp", false);
@@ -182,6 +184,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         vh = fx(7);
         vr = fx(8);
         vl = fx(9);
+        vc = fx(10);
         if (p.getBoolean("aw", true))
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else
@@ -269,17 +272,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         c.invalidate();
     }
 
-    // true when the max count is reached (dots / tally just start a new lap instead)
-    boolean full() {
-        return mx > 0 && n >= mx;
-    }
-
-    // true when the count just filled the screen exactly
-    boolean lap() {
-        int k = mode > 0 ? c.cap() : 0;
-        return k > 0 && n % k == 0;
-    }
-
     @Override public void onClick(View x) {
         if (x == se) {
             startActivity(new Intent(this, S.class));
@@ -295,13 +287,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         else inc();
     }
 
+    // counting never stops: "count reached" buzzes once when n hits the target,
+    // every lap (multiple of st, which also changes the colour) buzzes, other taps are plain
     void inc() {
-        if (full()) {
-            z(vl);
-            return;
-        }
         n++;
-        z(full() || lap() ? vl : vt);
+        z(mx > 0 && n == mx ? vl : n % st == 0 ? vc : vt);
         draw();
     }
 
@@ -339,12 +329,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         return true;
     }
 
-    // draws the dots / tally counting views. When the screen is full the next
-    // marks overwrite the earliest ones in the next colour of the palette.
+    // draws the dots / tally counting views. The colour is the number's colour and
+    // changes every st taps (a lap). Within a lap the screen fills one mark per tap;
+    // once it is full, each tap removes the earliest remaining mark, and when it is
+    // empty it fills again, until the next lap starts over in the next colour.
     static class V extends View {
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         int[] cl;
-        int mode, n, sz, cols, rows;
+        int mode, n, st, sz, cols, rows;
         float pw, ph; // grid pitch
 
         V(Context x) {
@@ -366,11 +358,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             int cap = cap();
             if (mode == 0 || cap == 0 || cl == null) return;
             float ox = (getWidth() - cols * pw) / 2f, oy = (getHeight() - rows * ph) / 2f;
-            int lap = n / cap, pos = n % cap;
+            int q = n % st % (2 * cap);            // position inside the fill / drain cycle
+            int lo = q <= cap ? 0 : q - cap;       // marks before lo have been removed
+            int hi = Math.min(q, cap);             // marks from hi on are not drawn yet
             p.setStrokeWidth(sz * .13f);
-            for (int i = 0, e = Math.min(n, cap); i < e; i++) {
-                // marks before pos belong to the current lap, the rest to the previous one
-                p.setColor(cl[(i < pos ? lap : lap - 1) % cl.length]);
+            p.setColor(cl[(n / st) % cl.length]);
+            for (int i = lo; i < hi; i++) {
                 if (mode == 1) {
                     c.drawCircle(ox + (i % cols + .5f) * pw, oy + (i / cols + .5f) * ph, sz * .3f, p);
                 } else {
