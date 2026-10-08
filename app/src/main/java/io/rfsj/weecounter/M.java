@@ -17,7 +17,6 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public class M extends Activity implements View.OnClickListener, View.OnLongClickListener, Runnable {
@@ -38,14 +37,13 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // counting views: 0 blackout, 1 dots, 2 tally
     static final String[] NM = {"blackout", "dots", "tally"};
 
-    // status line above the number, by Do Not Disturb mode (index 0 = off, keeps the line's height)
-    static final String[] DT = {" ", "DND ON - only priority notifications get through",
+    // Do Not Disturb warning above the bottom buttons: 0 = not shown, 1 = priority only, 2 = alarms only
+    static final String[] DT = {"", "DND ON - only priority notifications get through",
         "DND ON - notifications silenced, alarms only"};
 
     SharedPreferences p;
     FrameLayout f;
     V c;
-    LinearLayout col;
     TextView t, dt, se, rs, dn, vw;
     View[] ui;
     Vibrator v;
@@ -54,6 +52,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     int[] cl;
     int n, mx, st, mode, ps, sh;
     boolean dnOn; // Do Not Disturb currently applied by us
+    boolean hp;   // send vibrations as touch feedback
     boolean cv; // true = counting view shown, false = panel (number + buttons)
 
     @Override protected void onCreate(Bundle b) {
@@ -76,20 +75,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         c = new V(this);
         f.addView(c, new FrameLayout.LayoutParams(-1, -1));
 
-        // number with the DND status line above it
-        col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setGravity(Gravity.CENTER);
-        dt = new TextView(this);
-        dt.setTextSize(13);
-        dt.setTextColor(0xFFFFB74D);
-        dt.setGravity(Gravity.CENTER);
-        dt.setPadding(dp(24), 0, dp(24), dp(8));
         t = new TextView(this);
         t.setGravity(Gravity.CENTER);
-        col.addView(dt);
-        col.addView(t);
-        f.addView(col, new FrameLayout.LayoutParams(-1, -1));
+        f.addView(t, new FrameLayout.LayoutParams(-1, -1));
 
         se = b("settings", 14, Gravity.TOP | Gravity.START);
         se.setOnClickListener(this);
@@ -100,7 +88,17 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         vw = b("", 14, Gravity.BOTTOM | Gravity.END);
         vw.setOnClickListener(this);
 
-        ui = new View[]{col, se, rs, dn, vw};
+        // Do Not Disturb warning, just above the -1 and view buttons (not clickable)
+        dt = new TextView(this);
+        dt.setTextSize(12);
+        dt.setTextColor(0xFFFFB74D);
+        dt.setGravity(Gravity.CENTER);
+        dt.setPadding(dp(24), dp(8), dp(24), dp(8));
+        FrameLayout.LayoutParams dl = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        dl.bottomMargin = dp(112);
+        f.addView(dt, dl);
+
+        ui = new View[]{t, dt, se, rs, dn, vw};
         setContentView(f);
     }
 
@@ -156,10 +154,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
     }
 
-    // sent as touch (haptic) feedback, so Do Not Disturb doesn't mute it
+    // optionally sent as touch (haptic) feedback, which Do Not Disturb doesn't mute
     void z(VibrationEffect e) {
         if (e == null) return;
-        if (Build.VERSION.SDK_INT >= 33)
+        if (!hp)
+            v.vibrate(e);
+        else if (Build.VERSION.SDK_INT >= 33)
             v.vibrate(e, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH));
         else
             v.vibrate(e, new AudioAttributes.Builder()
@@ -172,6 +172,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         st = Math.max(1, num(2));
         c.sz = dp(Math.max(6, num(3)));
         ps = Math.max(0, num(4));
+        hp = p.getBoolean("hp", false);
         t.setTextSize(Math.max(8, num(0)));
         cl = cs();
         c.cl = cl;
@@ -259,6 +260,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         vw.setText("view: " + NM[mode]);
         dt.setText(DT[dnOn ? p.getInt("dn", 0) : 0]);
         for (View x : ui) x.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);
+        if (!dnOn) dt.setVisibility(View.INVISIBLE);
         c.mode = mode;
         c.n = n;
         c.setVisibility(cv && mode > 0 ? View.VISIBLE : View.INVISIBLE);

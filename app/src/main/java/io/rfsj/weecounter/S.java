@@ -23,7 +23,7 @@ public class S extends Activity implements View.OnClickListener {
 
     SharedPreferences p;
     EditText[] e = new EditText[M.D.length];
-    CheckBox aw, dk;
+    CheckBox aw, dk, hp;
     TextView df, dd, dx;
     NotificationManager nm;
     int dm;
@@ -42,12 +42,17 @@ public class S extends Activity implements View.OnClickListener {
         l.addView(dd);
         dx = tv("", 0xFF888888, m / 4);
         l.addView(dx);
+        hp = new CheckBox(this);
+        hp.setText("Vibrate as touch feedback");
+        hp.setTextColor(0xFFFFFFFF);
+        l.addView(hp);
+        l.addView(tv("Only turn this on if Do Not Disturb mutes the vibrations on your phone. "
+                + "They then follow your phone's touch feedback setting, so turning that off silences them.",
+                0xFF888888, 0));
         for (int i = 0; i < e.length; i++) {
             if (i == 6)
                 l.addView(tv("Vibration notation: milliseconds, alternating buzz and pause. "
-                        + "\"40 60 40\" = buzz 40, pause 60, buzz 40. Empty = off. "
-                        + "Vibrations are sent as touch feedback, so they follow your phone's touch feedback setting.",
-                        0xFF888888, m));
+                        + "\"40 60 40\" = buzz 40, pause 60, buzz 40. Empty = off.", 0xFF888888, m));
             l.addView(tv(M.D[i][2], 0xFFFFFFFF, m));
             e[i] = new EditText(this);
             e[i].setTextColor(0xFFFFFFFF);
@@ -89,6 +94,7 @@ public class S extends Activity implements View.OnClickListener {
             e[i].setText(d ? M.D[i][1] : p.getString(M.D[i][0], M.D[i][1]));
         aw.setChecked(d || p.getBoolean("aw", true));
         dk.setChecked(!d && p.getBoolean("dk", false));
+        hp.setChecked(!d && p.getBoolean("hp", false));
         dm = d ? 0 : p.getInt("dn", 0);
         dnd();
     }
@@ -128,6 +134,6 @@ public class S extends Activity implements View.OnClickListener {
         SharedPreferences.Editor x = p.edit();
         for (int i = 0; i < e.length; i++)
             x.putString(M.D[i][0], e[i].getText().toString());
-        x.putBoolean("aw", aw.isChecked()).putBoolean("dk", dk.isChecked()).putInt("dn", dm).apply();
+        x.putBoolean("aw", aw.isChecked()).putBoolean("dk", dk.isChecked()).putBoolean("hp", hp.isChecked()).putInt("dn", dm).apply();
     }
 }
