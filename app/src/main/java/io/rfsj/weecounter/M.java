@@ -14,6 +14,12 @@ import android.os.SystemClock;
 import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.StaticLayout;
+import android.text.TextPaint;
+import android.text.style.RelativeSizeSpan;
+import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -24,6 +30,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.Random;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class M extends Activity implements View.OnClickListener, View.OnLongClickListener, Runnable {
     // {pref key, default, settings label}; indices 0..10 are used below and in S
@@ -54,10 +62,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     SharedPreferences p;
     FrameLayout f;
-    LinearLayout lay;
+    LinearLayout lay, bot;
     V c;
     Cf cf;
-    TextView t, dh, dt, se, rs, dn, vw;
+    TextView t, dh, pg, dt, se, rs, dn, vw;
     View[] ui;
     Vibrator v;
     NotificationManager nm;
@@ -68,6 +76,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     String pf = "";  // its name
     String em = "";  // emoji for the completed screen
     int gp;          // dhikr progress in taps
+    int shown = -2;  // which dhikr text is on screen (-1 none, slide index, slide count = completed)
     boolean dnOn; // Do Not Disturb currently applied by us
     boolean hp;   // send vibrations as touch feedback
     boolean cv; // true = counting view shown, false = panel (number + buttons)
@@ -76,29 +85,37 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // cu = cumulative counts (cu[i] = taps before slide i), tot = all taps.
     static class Pr {
         int[] c, cu;
-        String[] t;
+        CharSequence[] t;
         int tot;
     }
 
+    static final Pattern LN = Pattern.compile("^\\[([0-9]{0,4})\\]\\s*(.*)$");
+
     // Text format: a line "---33" starts a slide that is counted 33 times (0 skips it,
-    // 1 shows it once); the lines below it, up to the next "---N" line, are its text.
-    // Anything before the first "---N" line is ignored. Returns null if no slide is left.
+    // 1 shows it once); the lines below it, up to the next "---N" line (or a bare "---"),
+    // are its text. Anything before the first "---N" line is ignored.
+    // Returns null if no slide is left.
     static Pr parse(String s) {
         ArrayList<Integer> cs = new ArrayList<>();
-        ArrayList<String> ts = new ArrayList<>();
+        ArrayList<CharSequence> ts = new ArrayList<>();
         StringBuilder b = new StringBuilder();
         int cnt = -1;
+        boolean open = false;
         try {
             for (String ln : (s + "\n---0").split("\r?\n")) {
-                if (ln.trim().matches("-{2,}\\s*[0-9]+")) {
+                String l = ln.trim();
+                if (l.matches("-{2,}\\s*[0-9]+")) {
                     if (cnt > 0) {
                         cs.add(cnt);
-                        ts.add(b.toString().trim());
+                        ts.add(rich(b.toString()));
                     }
-                    cnt = Integer.parseInt(ln.replaceAll("[^0-9]", ""));
+                    cnt = Integer.parseInt(l.replaceAll("[^0-9]", ""));
                     if (cnt > 100000) return null;
                     b.setLength(0);
-                } else {
+                    open = true;
+                } else if (l.matches("-{2,}")) {
+                    open = false; // bare --- ends the text of the slide
+                } else if (open) {
                     b.append(ln).append('\n');
                 }
             }
@@ -109,7 +126,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         Pr r = new Pr();
         int k = cs.size();
         r.c = new int[k];
-        r.t = new String[k];
+        r.t = new CharSequence[k];
         r.cu = new int[k + 1];
         for (int i = 0; i < k; i++) {
             r.c[i] = cs.get(i);
@@ -118,6 +135,49 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
         r.tot = r.cu[k];
         return r;
+    }
+
+    // Slide text -> one text with a relative size per line. "[70]text" sets the line's size
+    // relative to the other lines ([70] and [30] = 70:30), "[]text" hides the line, a line
+    // without [n] gets the average of the others (equal sizes if none has one).
+    // Blank lines are dropped. The text is auto-fitted so that the biggest line fills the box.
+    static CharSequence rich(String block) {
+        ArrayList<String> ls = new ArrayList<>();
+        ArrayList<Integer> ws = new ArrayList<>();
+        for (String ln : block.split("\n")) {
+            String l = ln.trim();
+            int w = -1;
+            Matcher m = LN.matcher(l);
+            if (m.matches()) {
+                if (m.group(1).isEmpty() || Integer.parseInt(m.group(1)) == 0) continue;
+                w = Integer.parseInt(m.group(1));
+                l = m.group(2);
+            }
+            if (l.isEmpty()) continue;
+            ls.add(l);
+            ws.add(w);
+        }
+        int sum = 0, k = 0, max = 1;
+        for (int w : ws) {
+            if (w > 0) {
+                sum += w;
+                k++;
+            }
+        }
+        int def = k == 0 ? 1 : Math.max(1, sum / k);
+        for (int i = 0; i < ws.size(); i++) {
+            if (ws.get(i) < 0) ws.set(i, def);
+            max = Math.max(max, ws.get(i));
+        }
+        SpannableStringBuilder sb = new SpannableStringBuilder();
+        for (int i = 0; i < ls.size(); i++) {
+            if (i > 0) sb.append('\n');
+            int a = sb.length();
+            sb.append(ls.get(i));
+            sb.setSpan(new RelativeSizeSpan(ws.get(i) / (float) max), a, sb.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return sb;
     }
 
     @Override protected void onCreate(Bundle b) {
@@ -140,19 +200,29 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         c = new V(this);
         f.addView(c, new FrameLayout.LayoutParams(-1, -1));
 
-        // top half: dhikr text (only with a profile), bottom half: the number.
-        // Without a profile the text is gone and the number takes the whole screen.
+        // top half: dhikr text (only with a profile), bottom half: the number with the slide
+        // progress under it. Without a profile the text is gone and the number is centered.
         lay = new LinearLayout(this);
         lay.setOrientation(LinearLayout.VERTICAL);
         dh = new TextView(this);
         dh.setGravity(Gravity.CENTER);
         dh.setTextColor(0xFFEEEEEE);
         dh.setPadding(dp(24), dp(96), dp(24), dp(8));
-        dh.setAutoSizeTextTypeUniformWithConfiguration(12, 40, 2, TypedValue.COMPLEX_UNIT_SP);
-        lay.addView(dh, new LinearLayout.LayoutParams(-1, 0, 1f));
+        dh.setAutoSizeTextTypeUniformWithConfiguration(10, 80, 2, TypedValue.COMPLEX_UNIT_SP);
+        lay.addView(dh, new LinearLayout.LayoutParams(-1, 0, .5f));
+        bot = new LinearLayout(this);
+        bot.setOrientation(LinearLayout.VERTICAL);
+        bot.setGravity(Gravity.CENTER);
         t = new TextView(this);
         t.setGravity(Gravity.CENTER);
-        lay.addView(t, new LinearLayout.LayoutParams(-1, 0, 1f));
+        bot.addView(t, new LinearLayout.LayoutParams(-1, 0, 1f));
+        pg = new TextView(this);
+        pg.setTextSize(14);
+        pg.setTextColor(0xFF888888);
+        pg.setGravity(Gravity.CENTER);
+        pg.setPadding(0, dp(4), 0, dp(24));
+        bot.addView(pg, new LinearLayout.LayoutParams(-1, -2));
+        lay.addView(bot, new LinearLayout.LayoutParams(-1, 0, .5f));
         f.addView(lay, new FrameLayout.LayoutParams(-1, -1));
 
         cf = new Cf(this);
@@ -253,7 +323,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         ps = Math.max(0, num(4));
         hp = p.getBoolean("hp", false);
         vk = p.getInt("vk", 0);
-        t.setAutoSizeTextTypeUniformWithConfiguration(6, Math.max(8, num(0)), 2, TypedValue.COMPLEX_UNIT_SP);
         cl = cs();
         cf.cl = cl;
         vt = fx(6);
@@ -271,6 +340,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             else gp = Math.min(p.getInt("g:" + pf, 0), pr.tot);
         }
         em = EM[new Random().nextInt(EM.length)];
+        shown = -2;
+        split("");
         if (p.getBoolean("aw", true))
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else
@@ -353,20 +424,43 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         return s;
     }
 
+    // Normally the dhikr text and the number get half of the screen each. If the text would not
+    // fit in its half at a comfortable size (28sp) it gets up to 70%, and the number, being
+    // just a number, shrinks a little along with its room.
+    void split(CharSequence s) {
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        float f = .5f;
+        if (s.length() > 0) {
+            TextPaint tp = new TextPaint();
+            tp.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 28, dm));
+            int need = StaticLayout.Builder.obtain(s, 0, s.length(), tp, dm.widthPixels - dp(48))
+                    .build().getHeight() + dp(104);
+            f = Math.min(.7f, Math.max(.5f, (float) need / dm.heightPixels));
+        }
+        ((LinearLayout.LayoutParams) dh.getLayoutParams()).weight = f;
+        ((LinearLayout.LayoutParams) bot.getLayoutParams()).weight = 1 - f;
+        t.setAutoSizeTextTypeUniformWithConfiguration(6,
+                Math.max(8, (int) (num(0) * (1 - f) * 2)), 2, TypedValue.COMPLEX_UNIT_SP);
+        lay.requestLayout();
+    }
+
     void draw() {
-        int cnt, lap, ci;      // count shown / lap length / colour index
-        String big, top = "";  // the big text and the dhikr text
+        int cnt, lap, ci;         // count shown / lap length / colour index
+        String big, prog = "";    // the big text and the slide progress line
+        CharSequence top = "";    // the dhikr text
         if (pr == null) {
             cnt = n;
             lap = st;
             ci = n / st;
             big = Integer.toString(n);
         } else if (gp >= pr.tot) {
+            int k = pr.c.length;
             cnt = 0;
             lap = 1;
-            ci = pr.c.length - 1;
+            ci = k - 1;
             big = em;
             top = pf + "\ncompleted";
+            prog = "all " + k + " slides done";
         } else {
             int s = slide();
             cnt = gp - pr.cu[s];
@@ -374,12 +468,20 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             ci = s;
             big = cnt + "/" + lap;
             top = pr.t[s];
+            prog = "slide " + (s + 1) + " of " + pr.c.length;
         }
+        int key = pr == null ? -1 : slide();
+        if (key != shown) { // only re-fit the text when the slide changes
+            shown = key;
+            dh.setText(top);
+            split(top);
+        }
+        pg.setText(prog);
+        pg.setVisibility(pr == null ? View.GONE : View.VISIBLE);
+        dh.setVisibility(pr == null ? View.GONE : View.VISIBLE);
         int co = cl[ci % cl.length];
         t.setText(big);
         t.setTextColor(co);
-        dh.setText(top);
-        dh.setVisibility(pr == null ? View.GONE : View.VISIBLE);
         vw.setText("view: " + NM[mode]);
         dt.setText(DT[dnOn ? p.getInt("dn", 0) : 0]);
         for (View x : ui) x.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);

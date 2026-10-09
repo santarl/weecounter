@@ -43,7 +43,9 @@ Alhamdulillah
 Allahu Akbar
 ```
 
-The slides are counted one after another (the number shows `17/33`). A finished slide gives the lap buzz (the tap buzz if its count is 1), the last tap gives the "count reached" buzz and a completed screen with confetti. On that screen taps do nothing, `-1` goes back and hold-to-reset starts over. Import, export and delete profiles on the profile screen (hold the red x to delete).
+A line can start with `[n]` to set its text size relative to the other lines, e.g. `[70]` for the Arabic line and `[30]` for the transliteration gives a 70:30 size ratio, and the biggest line is fitted to the screen automatically. Lines without `[n]` get the average of the others (equal if none has one), `[]` before a line hides it, blank lines are dropped and a bare `---` ends the slide text.
+
+The slides are counted one after another (the number shows `17/33`, with `slide 2 of 4` under it). A finished slide gives the lap buzz (the tap buzz if its count is 1), the last tap gives the "count reached" buzz and a completed screen with confetti. On that screen taps do nothing, `-1` goes back and hold-to-reset starts over. Import, export and delete profiles on the profile screen (hold the red x to delete).
 
 ## Build
 

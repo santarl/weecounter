@@ -24,9 +24,10 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
     // example profile added on the first visit (Arabic written as escapes to keep the source ASCII)
     static final String EX = "# Example. A line like ---33 starts a slide that is counted 33 times\n"
         + "# (0 skips it, 1 shows it once). The lines below it are the slide's text.\n"
-        + "---33\n\u0633\u0628\u062D\u0627\u0646 \u0627\u0644\u0644\u0647\nSubhanallah\n"
-        + "---33\n\u0627\u0644\u062D\u0645\u062F \u0644\u0644\u0647\nAlhamdulillah\n"
-        + "---34\n\u0627\u0644\u0644\u0647 \u0623\u0643\u0628\u0631\nAllahu Akbar\n";
+        + "# [70] / [30] in front of a line set its relative size.\n"
+        + "---33\n[70]\u0633\u0628\u062D\u0627\u0646 \u0627\u0644\u0644\u0647\n[30]Subhanallah\n"
+        + "---33\n[70]\u0627\u0644\u062D\u0645\u062F \u0644\u0644\u0647\n[30]Alhamdulillah\n"
+        + "---34\n[70]\u0627\u0644\u0644\u0647 \u0623\u0643\u0628\u0631\n[30]Allahu Akbar\n";
 
     SharedPreferences p, d; // p = settings, d = the profiles (name -> text)
     LinearLayout ls;
@@ -46,7 +47,8 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         l.setPadding(m, m, m, m);
         l.addView(tv("Dhikr profiles are text files (UTF-8, any language). A line like ---33 starts a slide "
                 + "that is counted 33 times (0 skips it, 1 shows it once). The lines below it, up to the "
-                + "next --- line, are shown above the number.", 0xFF888888));
+                + "next --- line, are shown above the number. A line can start with [70] to set its size "
+                + "relative to the other lines (biggest line is auto-fitted), [] hides the line.", 0xFF888888));
         TextView im = tv("IMPORT FILE", 0xFF00E676);
         im.setId(4);
         im.setPadding(0, dp(16), 0, dp(8));
