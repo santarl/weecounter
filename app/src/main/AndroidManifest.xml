@@ -18,6 +18,9 @@
             </intent-filter>
         </activity>
         <activity
+            android:name=".P"
+            android:exported="false"/>
+        <activity
             android:name=".S"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>

@@ -30,6 +30,21 @@ The display drifts a few pixels every 15 seconds to protect AMOLED screens from 
 
 Optional (off by default): turn on Do Not Disturb while the app is open, either "priority only" or "alarms only". The previous setting is restored when you leave. Needs Do Not Disturb access, which you grant in Android's settings.
 
+## Dhikr profiles
+
+Optional (settings, "Dhikr profile"). A profile is a UTF-8 text file, one file per profile, any language. A line like `---33` starts a slide that is counted 33 times (`0` skips it, `1` shows it once). The lines below it, up to the next `---N` line, are shown above the number.
+
+```
+---33
+Subhanallah
+---33
+Alhamdulillah
+---34
+Allahu Akbar
+```
+
+The slides are counted one after another (the number shows `17/33`). A finished slide gives the lap buzz (the tap buzz if its count is 1), the last tap gives the "count reached" buzz and a completed screen with confetti. On that screen taps do nothing, `-1` goes back and hold-to-reset starts over. Import, export and delete profiles on the profile screen (hold the red x to delete).
+
 ## Build
 
 ```

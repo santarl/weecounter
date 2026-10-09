@@ -32,7 +32,7 @@ public class S extends Activity implements View.OnClickListener {
     SharedPreferences p;
     EditText[] e = new EditText[M.D.length];
     CheckBox aw, dk, hp;
-    TextView df, dd, dx, vv, vz;
+    TextView df, dd, dx, vv, vz, dr;
     NotificationManager nm;
     int dm, vm;
 
@@ -60,6 +60,11 @@ public class S extends Activity implements View.OnClickListener {
         l.addView(vv);
         vz = tv("", 0xFF888888, m / 4);
         l.addView(vz);
+        dr = tv("", 0xFFFFFFFF, m);
+        dr.setOnClickListener(this);
+        l.addView(dr);
+        l.addView(tv("Count a list of dhikr slides one after another, shown above the number. "
+                + "Pick, import, export or delete profiles there.", 0xFF888888, m / 4));
         for (int i = 0; i < e.length; i++) {
             if (i == 6)
                 l.addView(tv("Vibration notation: milliseconds, alternating buzz and pause. "
@@ -130,6 +135,8 @@ public class S extends Activity implements View.OnClickListener {
     // coming back from the system screen without granting access = Off
     @Override protected void onResume() {
         super.onResume();
+        String k = p.getString("pf", "");
+        dr.setText("Dhikr profile: " + (k.isEmpty() ? "Off" : k) + "  (tap to open)");
         if (dm != 0 && !nm.isNotificationPolicyAccessGranted()) {
             dm = 0;
             dnd();
@@ -147,6 +154,8 @@ public class S extends Activity implements View.OnClickListener {
                 }
             }
             dnd();
+        } else if (x == dr) {
+            startActivity(new Intent(this, P.class));
         } else if (x == vv) {
             vm = (vm + 1) % VN.length;
             vol();
