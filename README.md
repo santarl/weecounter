@@ -32,20 +32,25 @@ Optional (off by default): turn on Do Not Disturb while the app is open, either 
 
 ## Dhikr profiles
 
-Optional (settings, "Dhikr profile"). A profile is a UTF-8 text file, one file per profile, any language. A line like `---33` starts a slide that is counted 33 times (`0` skips it, `1` shows it once). The lines below it, up to the next `---N` line, are shown above the number.
+Optional (settings, "Dhikr profile"). A profile is a UTF-8 text file, one file per profile, any language. A line like `---33` starts a slide that is counted 33 times (`0` skips it, `1` shows it once). The lines below it, up to the next `---N` line (or a bare `---`), are shown above the number.
 
 ```
 ---33
-Subhanallah
+[70]Arabic text
+[30]Subhanallah
 ---33
-Alhamdulillah
----34
-Allahu Akbar
+[30]Arabic | [20]Transliteration | [40]Meaning
+[_]always shown, takes what is left
+---1
+[10]
+[100]the end
 ```
 
-A line can start with `[n]` to set its text size relative to the other lines, e.g. `[70]` for the Arabic line and `[30]` for the transliteration gives a 70:30 size ratio, and the biggest line is fitted to the screen automatically. Lines without `[n]` get the average of the others (equal if none has one), `[]` before a line hides it, blank lines are dropped and a bare `---` ends the slide text.
-
-The slides are counted one after another (the number shows `17/33`, with `slide 2 of 4` under it). A finished slide gives the lap buzz (the tap buzz if its count is 1), the last tap gives the "count reached" buzz and a completed screen with confetti. On that screen taps do nothing, `-1` goes back and hold-to-reset starts over. Import, export and delete profiles on the profile screen (hold the red x to delete).
+- `[70]` in front of a line gives it a share of the text area, and the text is fitted into its share. `[_]` (or `[*]`) takes whatever is left of 100, `[10]` alone on a line is an empty spacer, `[]` hides a line. Lines without a prefix get the average share of the numbered ones (equal if none has one). Blank lines are dropped.
+- `|` writes alternative views of a line. A slide with `A | B | C` has three views: view 1 shows A, view 2 shows B, view 3 shows C, while lines without `|` stay on screen in every view.
+- The number shows `17/33`, with `slide 2 of 4` under it. A finished slide gives the lap buzz (the tap buzz if its count is 1); the last tap gives the "count reached" buzz and a completed screen with confetti.
+- Gestures: swipe **right** to skip to the next slide (counts as done), **left** to go to the previous one, **up** / **down** to switch between the views of a slide.
+- On the completed screen taps do nothing, `-1` goes back and hold-to-reset starts over. Import, export and delete profiles on the profile screen (hold the red x to delete).
 
 ## Build
 
