@@ -26,6 +26,7 @@ import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.Random;
 import java.util.regex.Matcher;
@@ -75,6 +76,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     String em = "";  // emoji for the completed screen
     int gp;          // dhikr progress in taps
     int vi;          // chosen view of the slides (clamped per slide)
+    long rt;         // time of the first tap on the completed screen (restart needs a second one)
     float tx, ty;    // where the current touch started
     boolean sw;      // a swipe was recognised, the rest of the touch is swallowed
     int shown = -2;  // which dhikr text is on screen (-1 none, slide index, slide count = completed)
@@ -633,13 +635,28 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // Normal counter: never stops. "Count reached" buzzes once when n hits the target,
     // every lap (multiple of st, which also changes the colour) buzzes, other taps are plain.
     // Dhikr: a finished slide buzzes like a lap (unless its count is 1), the last tap gives
-    // the "count reached" buzz and the completed screen, after that taps do nothing.
+    // the "count reached" buzz and the completed screen, where a double tap starts over.
     void inc() {
         if (pr != null) {
-            if (gp >= pr.tot) return;
+            if (gp >= pr.tot) { // completed: the first tap asks, a second one within 4 s starts over
+                long now = SystemClock.uptimeMillis();
+                if (rt != 0 && now - rt < 4000) {
+                    rt = 0;
+                    gp = 0;
+                    cf.t0 = 0;
+                    z(vr);
+                    draw();
+                } else {
+                    rt = now;
+                    z(vt);
+                    Toast.makeText(this, "Tap again to start over", Toast.LENGTH_SHORT).show();
+                }
+                return;
+            }
             int s = slide();
             gp++;
             boolean done = gp == pr.tot;
+            rt = 0;
             z(done ? vl : gp == pr.cu[s + 1] && pr.c[s] > 1 ? vc : vt);
             if (done) {
                 em = EM[new Random().nextInt(EM.length)];

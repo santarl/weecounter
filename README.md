@@ -50,7 +50,7 @@ Optional (settings, "Dhikr profile"). A profile is a UTF-8 text file, one file p
 - `|` writes alternative views of a line. A slide with `A | B | C` has three views: view 1 shows A, view 2 shows B, view 3 shows C, while lines without `|` stay on screen in every view.
 - The number shows `17/33`, with `slide 2 of 4` under it. A finished slide gives the lap buzz (the tap buzz if its count is 1); the last tap gives the "count reached" buzz and a completed screen with confetti.
 - Gestures: swipe **right** to skip to the next slide (counts as done), **left** to go to the previous one, **up** / **down** to switch between the views of a slide.
-- On the completed screen taps do nothing, `-1` goes back and hold-to-reset starts over. Import, export and delete profiles on the profile screen (hold the red x to delete).
+- On the completed screen, tap once (a toast asks "Tap again to start over") and again within 4 seconds to restart the profile. `-1` goes back and hold-to-reset also starts over. Import, export and delete profiles on the profile screen (hold the red x to delete).
 
 ## Build
 
