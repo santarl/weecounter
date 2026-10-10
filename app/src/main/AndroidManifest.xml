@@ -19,7 +19,32 @@
         </activity>
         <activity
             android:name=".P"
-            android:exported="false"/>
+            android:exported="true">
+            <!-- profiles shared (file or text) or opened from other apps, e.g. WhatsApp -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="application/octet-stream"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="application/octet-stream"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:host="*"/>
+                <data android:mimeType="*/*"/>
+                <data android:pathPattern=".*\\.dhikr"/>
+                <data android:pathPattern=".*\\..*\\.dhikr"/>
+                <data android:pathPattern=".*\\..*\\..*\\.dhikr"/>
+            </intent-filter>
+        </activity>
         <activity
             android:name=".S"
             android:exported="false"

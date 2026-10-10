@@ -17,6 +17,7 @@ import android.widget.Toast;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.TreeSet;
 
 // dhikr profiles: pick one (or Off), import / export text files, hold the red x to delete
@@ -50,7 +51,9 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
                 + "next --- line, are shown above the number. A line can start with [70] to give it that share "
                 + "of the text area ([_] = what is left, [10] alone = a spacer, [] hides it). Write alternatives "
                 + "of a line with | (Arabic | transliteration | meaning): swipe up or down to switch. "
-                + "Swipe right to skip the slide, left to go back.", 0xFF888888));
+                + "A line # Title names the slide in the slide list (hold the text). Swipe left for the next "
+                + "slide, right to go back. Profiles are .dhikr files: share one to this app from any other app "
+                + "to import it.", 0xFF888888));
         TextView im = tv("IMPORT FILE", 0xFF00E676);
         im.setId(4);
         im.setPadding(0, dp(16), 0, dp(8));
@@ -66,6 +69,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         s.addView(l);
         setContentView(s);
         fill();
+        if (b == null) incoming(getIntent());
     }
 
     int dp(int x) {
@@ -126,7 +130,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
             case 2: {
                 ex = k;
                 Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-                        .setType("text/plain").putExtra(Intent.EXTRA_TITLE, k + ".txt");
+                        .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE, k + ".dhikr");
                 startActivityForResult(i, 2);
                 break;
             }
@@ -173,7 +177,64 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         }
     }
 
-    // reads one file, keeps it only if it has at least one slide to count; returns 1 if kept
+    // a profile shared or opened from another app (a .dhikr file, or a pasted text, e.g. from WhatsApp)
+    @SuppressWarnings("deprecation")
+    void incoming(Intent i) {
+        String a = i.getAction();
+        if (a == null) return;
+        ArrayList<Uri> us = new ArrayList<>();
+        int total = 0, ok = 0;
+        try {
+            if (Intent.ACTION_VIEW.equals(a)) {
+                if (i.getData() != null) us.add(i.getData());
+            } else if (Intent.ACTION_SEND.equals(a)) {
+                Uri u = i.getParcelableExtra(Intent.EXTRA_STREAM);
+                String tx = i.getStringExtra(Intent.EXTRA_TEXT);
+                if (u != null) {
+                    us.add(u);
+                } else if (tx != null) {
+                    total++;
+                    ok += store(textName(tx), tx);
+                }
+            } else if (Intent.ACTION_SEND_MULTIPLE.equals(a)) {
+                ArrayList<Uri> l = i.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+                if (l != null) us.addAll(l);
+            } else {
+                return;
+            }
+        } catch (Exception e) {
+            // nothing usable in this intent
+        }
+        for (Uri u : us) {
+            total++;
+            ok += add(u);
+        }
+        if (total > 0) {
+            Toast.makeText(this, "Imported " + ok + " of " + total, Toast.LENGTH_SHORT).show();
+            fill();
+        }
+    }
+
+    // name of a pasted profile: its first "# name" line, else a default
+    String textName(String s) {
+        for (String ln : s.split("\r?\n")) {
+            String l = ln.trim();
+            if (l.isEmpty()) continue;
+            if (l.startsWith("#") && l.length() > 1) return l.substring(1).trim();
+            break;
+        }
+        return "Shared profile";
+    }
+
+    // keeps a profile only if it has at least one slide to count; returns 1 if kept
+    int store(String name, String s) {
+        s = s.replace("\uFEFF", "");
+        if (M.parse(s) == null) return 0;
+        d.edit().putString(name, s).apply();
+        return 1;
+    }
+
+    // reads one file; returns 1 if it was kept
     int add(Uri u) {
         try {
             InputStream in = getContentResolver().openInputStream(u);
@@ -182,10 +243,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
             int k;
             while ((k = in.read(buf)) > 0 && b.size() < 300000) b.write(buf, 0, k);
             in.close();
-            String s = b.toString("UTF-8").replace("\uFEFF", "");
-            if (M.parse(s) == null) return 0;
-            d.edit().putString(name(u), s).apply();
-            return 1;
+            return store(name(u), b.toString("UTF-8"));
         } catch (Exception e) {
             return 0;
         }

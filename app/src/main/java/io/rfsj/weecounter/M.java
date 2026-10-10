@@ -1,6 +1,7 @@
 package io.rfsj.weecounter;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
@@ -29,10 +30,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.Random;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class M extends Activity implements View.OnClickListener, View.OnLongClickListener, View.OnTouchListener, Runnable {
+public class M extends Activity implements View.OnClickListener, View.OnLongClickListener, Runnable {
     // {pref key, default, settings label}; indices 0..10 are used below and in S
     // (the first five are numeric fields)
     static final String[][] D = {
@@ -77,6 +79,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     int gp;          // dhikr progress in taps
     int vi;          // chosen view of the slides (clamped per slide)
     long rt;         // time of the first tap on the completed screen (restart needs a second one)
+    int shx, shy;    // current pixel-shift offset in px
+    Runnable pend;   // slide change waiting for the slide-out animation
     float tx, ty;    // where the current touch started
     boolean sw;      // a swipe was recognised, the rest of the touch is swallowed
     int shown = -2;  // which dhikr text is on screen (-1 none, slide index, slide count = completed)
@@ -95,6 +99,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // tot = all taps.
     static class Pr {
         int[] c, cu;
+        String[] ti; // slide titles, for the slide list
         Vw[][] v;
         int tot;
     }
@@ -109,6 +114,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     static Pr parse(String s) {
         ArrayList<Integer> cs = new ArrayList<>();
         ArrayList<Vw[]> vs = new ArrayList<>();
+        ArrayList<String> tis = new ArrayList<>();
         StringBuilder b = new StringBuilder();
         int cnt = -1;
         boolean open = false;
@@ -119,6 +125,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     if (cnt > 0) {
                         cs.add(cnt);
                         vs.add(views(b.toString()));
+                        tis.add(title(b.toString(), cs.size() - 1));
                     }
                     cnt = Integer.parseInt(l.replaceAll("[^0-9]", ""));
                     if (cnt > 100000) return null;
@@ -139,13 +146,29 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         r.c = new int[k];
         r.v = new Vw[k][];
         r.cu = new int[k + 1];
+        r.ti = new String[k];
         for (int i = 0; i < k; i++) {
+            r.ti[i] = tis.get(i);
             r.c[i] = cs.get(i);
             r.v[i] = vs.get(i);
             r.cu[i + 1] = r.cu[i] + r.c[i];
         }
         r.tot = r.cu[k];
         return r;
+    }
+
+    // Slide title for the slide list: a line "# Title" in the slide, else the start of its
+    // first line (first alternative, without a [n] prefix), cut at 28 characters.
+    static String title(String block, int idx) {
+        String first = "";
+        for (String ln : block.split("\n")) {
+            String l = ln.trim();
+            if (l.startsWith("#") && l.length() > 1) return l.substring(1).trim();
+            if (first.isEmpty() && !l.isEmpty() && !l.startsWith("#")) first = l;
+        }
+        first = first.split("\\|")[0].replaceFirst("^\\[[0-9_*]*\\]\\s*", "").trim();
+        if (first.isEmpty()) return "Slide " + (idx + 1);
+        return first.length() > 28 ? first.substring(0, 28).trim() + "..." : first;
     }
 
     // Slide text -> views. Every non-blank line is shown in every view, unless it has
@@ -162,6 +185,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         ArrayList<int[]> wt = new ArrayList<>();
         int nv = 1;
         for (String ln : block.split("\n")) {
+            if (ln.trim().startsWith("#")) continue; // a title line, see title()
             ArrayList<String> ps = new ArrayList<>();
             ArrayList<Integer> ws = new ArrayList<>();
             for (String part : ln.split("\\|")) {
@@ -246,7 +270,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         f.setBackgroundColor(0xFF000000);
         f.setOnClickListener(this);
         f.setOnLongClickListener(this);
-        f.setOnTouchListener(this);
 
         c = new V(this);
         f.addView(c, new FrameLayout.LayoutParams(-1, -1));
@@ -258,6 +281,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         dl = new LinearLayout(this);
         dl.setOrientation(LinearLayout.VERTICAL);
         dl.setPadding(dp(24), dp(96), dp(24), dp(8));
+        dl.setOnClickListener(this);     // a tap still counts, hold opens the slide list
+        dl.setOnLongClickListener(this);
         lay.addView(dl, new LinearLayout.LayoutParams(-1, 0, .5f));
         bot = new LinearLayout(this);
         bot.setOrientation(LinearLayout.VERTICAL);
@@ -379,15 +404,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         vr = fx(8);
         vl = fx(9);
         vc = fx(10);
-        // dhikr profile (a missing or broken one falls back to the normal counter)
-        pf = p.getString("pf", "");
-        pr = null;
-        if (pf.length() > 0) {
-            String tx = getSharedPreferences("d", 0).getString(pf, null);
-            pr = tx == null ? null : parse(tx);
-            if (pr == null) pf = "";
-            else gp = Math.min(p.getInt("g:" + pf, 0), pr.tot);
-        }
+        load();
         em = EM[new Random().nextInt(EM.length)];
         shown = -2;
         split(new String[0], new float[0]);
@@ -406,6 +423,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     @Override protected void onPause() {
         super.onPause();
         f.removeCallbacks(this);
+        land();
         undo();
         SharedPreferences.Editor e = p.edit().putInt("n", n).putInt("md", mode).putInt("vi", vi);
         if (pr != null) e.putInt("g:" + pf, gp);
@@ -445,6 +463,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         int x = s == 0 ? q - ps : s == 1 ? ps : s == 2 ? ps - q : -ps;
         int y = s == 0 ? -ps : s == 1 ? q - ps : s == 2 ? ps : ps - q;
         int d = dp(1);
+        shx = x * d;
+        shy = y * d;
         for (View w : ui) {
             w.setTranslationX(x * d);
             w.setTranslationY(y * d);
@@ -536,7 +556,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             cnt = gp - pr.cu[s];
             lap = pr.c[s];
             ci = s;
-            big = cnt + "/" + lap;
+            big = lap > 1 ? cnt + "/" + lap : "\u25CB"; // a ring for a slide that is counted once
             key = s * 64 + ev;
             tx = pr.v[s][ev].t;
             tw = pr.v[s][ev].w;
@@ -565,56 +585,145 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         c.invalidate();
     }
 
-    // Swipes (dhikr only; the rest of a recognised swipe never counts as a tap):
-    // right = next slide (counts as done), left = previous slide, up / down = next / previous view
-    @Override public boolean onTouch(View x, MotionEvent e) {
-        if (pr == null) return false;
-        switch (e.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN:
-                tx = e.getX();
-                ty = e.getY();
-                sw = false;
-                return false;
-            case MotionEvent.ACTION_MOVE: {
-                if (sw) return true;
-                float dx = e.getX() - tx, dy = e.getY() - ty;
-                if (Math.max(Math.abs(dx), Math.abs(dy)) < dp(64)) return false;
-                sw = true;
-                swipe(dx, dy);
-                e.setAction(MotionEvent.ACTION_CANCEL); // the view drops its pending tap / long press
-                return false;
-            }
-            default:
-                return sw;
+    // (re)loads the active dhikr profile; a missing or broken one falls back to the normal counter
+    void load() {
+        pf = p.getString("pf", "");
+        pr = null;
+        if (pf.length() > 0) {
+            String tx = getSharedPreferences("d", 0).getString(pf, null);
+            pr = tx == null ? null : parse(tx);
+            if (pr == null) pf = "";
+            else gp = Math.min(p.getInt("g:" + pf, 0), pr.tot);
         }
     }
 
-    void swipe(float dx, float dy) {
-        int s = slide(), k = pr.c.length;
-        if (Math.abs(dx) > Math.abs(dy)) {
-            if (dx > 0) {                       // next slide
-                if (s >= k) return;
-                gp = pr.cu[s + 1];
-                if (gp >= pr.tot) {
-                    em = EM[new Random().nextInt(EM.length)];
-                    if (!cv) cf.go();
-                    z(vl);
-                } else {
-                    z(vt);
+    // Swipes (dhikr only): left = next slide (counts as done), right = previous slide,
+    // up / down = next / previous view. A recognised swipe never counts as a tap or a hold.
+    @Override public boolean dispatchTouchEvent(MotionEvent e) {
+        if (pr != null) {
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    tx = e.getX();
+                    ty = e.getY();
+                    sw = false;
+                    break;
+                case MotionEvent.ACTION_MOVE: {
+                    if (sw) return true;
+                    float dx = e.getX() - tx, dy = e.getY() - ty;
+                    if (Math.max(Math.abs(dx), Math.abs(dy)) < dp(64)) break;
+                    sw = true;
+                    swipe(dx, dy);
+                    e.setAction(MotionEvent.ACTION_CANCEL); // views drop their pending tap / hold
+                    break;
                 }
-            } else {                            // previous slide, from its start
-                gp = pr.cu[Math.max(0, s - 1)];
-                cf.t0 = 0;
-                z(vt);
+                default:
+                    if (sw) return true;
             }
-        } else {
-            if (s >= k) return;
-            int nv = pr.v[s].length;
-            if (nv < 2) return;
-            vi = (Math.min(vi, nv - 1) + (dy < 0 ? 1 : nv - 1)) % nv;
-            z(vt);
         }
-        draw();
+        return super.dispatchTouchEvent(e);
+    }
+
+    void swipe(float dx, float dy) {
+        boolean h = Math.abs(dx) > Math.abs(dy);
+        final int t = h ? (dx < 0 ? 0 : 1) : (dy < 0 ? 2 : 3); // 0 next slide, 1 previous slide, 2 next view, 3 previous view
+        int s = slide(), k = pr.c.length;
+        if (t == 0 && s >= k || t > 1 && (s >= k || pr.v[s].length < 2)) return;
+        z(t == 0 && s + 1 >= k ? vl : vt);
+        land();
+        Runnable r = () -> {
+            apply(t);
+            draw();
+        };
+        if (cv) r.run();
+        else flip(h ? (dx < 0 ? -1 : 1) : 0, h ? 0 : (dy < 0 ? -1 : 1), r);
+    }
+
+    void apply(int t) {
+        int s = slide();
+        if (t == 1) {                       // previous slide, from its start
+            gp = pr.cu[Math.max(0, s - 1)];
+            cf.t0 = 0;
+        } else if (s < pr.c.length && t == 0) { // next slide, counts as done
+            gp = pr.cu[s + 1];
+            if (gp >= pr.tot) {
+                em = EM[new Random().nextInt(EM.length)];
+                if (!cv) cf.go();
+            }
+        } else if (s < pr.c.length) {       // next / previous view
+            int nv = pr.v[s].length;
+            vi = (Math.min(vi, nv - 1) + (t == 2 ? 1 : nv - 1)) % nv;
+        }
+    }
+
+    // Slides the panel out the way the finger went (fx / fy = -1, 0 or 1), applies the change
+    // and slides the new content in from the opposite side.
+    void flip(float fx, float fy, Runnable change) {
+        final float w = lay.getWidth() * fx, h = lay.getHeight() * .4f * fy;
+        pend = change;
+        lay.animate().translationX(shx + w).translationY(shy + h).alpha(0).setDuration(100)
+                .withEndAction(() -> {
+                    Runnable r = pend;
+                    pend = null;
+                    if (r != null) r.run();
+                    lay.setTranslationX(shx - w);
+                    lay.setTranslationY(shy - h);
+                    lay.animate().translationX(shx).translationY(shy).alpha(1).setDuration(140);
+                });
+    }
+
+    // finishes a running slide animation right away, including its pending change
+    void land() {
+        lay.animate().cancel();
+        Runnable r = pend;
+        pend = null;
+        if (r != null) r.run();
+        lay.setAlpha(1);
+        lay.setTranslationX(shx);
+        lay.setTranslationY(shy);
+    }
+
+    // hold on the dhikr text: list of the slides to jump to; the title is the profile name,
+    // tap it to pick another profile
+    void picker() {
+        if (pr == null) return;
+        int cur = slide(), k = pr.c.length;
+        String[] it = new String[k];
+        for (int i = 0; i < k; i++)
+            it[i] = (i == cur ? "\u25B6 " : "    ") + (i + 1) + ". " + pr.ti[i] + (pr.c[i] > 1 ? "  x" + pr.c[i] : "");
+        TextView h = new TextView(this);
+        h.setText(pf + "  \u25BE");
+        h.setTextSize(18);
+        h.setTextColor(0xFF00E676);
+        h.setPadding(dp(24), dp(20), dp(24), dp(8));
+        final AlertDialog d = new AlertDialog.Builder(this).setCustomTitle(h).setItems(it, (dg, i) -> {
+            land();
+            gp = pr.cu[i];
+            cf.t0 = 0;
+            z(vt);
+            draw();
+        }).create();
+        h.setOnClickListener(x -> {
+            d.dismiss();
+            profiles();
+        });
+        d.show();
+        d.getListView().setSelection(Math.max(0, cur - 2));
+    }
+
+    // quick profile switch (Off = normal counter); progress of the old profile is kept
+    void profiles() {
+        final String[] nm = new TreeSet<>(getSharedPreferences("d", 0).getAll().keySet()).toArray(new String[0]);
+        String[] it = new String[nm.length + 1];
+        it[0] = (pf.isEmpty() ? "\u2713 " : "    ") + "Off - normal counter";
+        for (int i = 0; i < nm.length; i++) it[i + 1] = (nm[i].equals(pf) ? "\u2713 " : "    ") + nm[i];
+        new AlertDialog.Builder(this).setTitle("Dhikr profile").setItems(it, (dg, i) -> {
+            land();
+            if (pr != null) p.edit().putInt("g:" + pf, gp).apply();
+            p.edit().putString("pf", i == 0 ? "" : nm[i - 1]).apply();
+            load();
+            shown = -2;
+            draw();
+        }).show();
     }
 
     @Override public void onClick(View x) {
@@ -697,6 +806,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     @Override public boolean onLongClick(View x) {
+        if (x == dl) {
+            z(vh);
+            picker();
+            return true;
+        }
         if (x == rs) {
             if (pr != null) gp = 0;
             else n = 0;
