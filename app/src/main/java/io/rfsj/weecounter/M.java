@@ -23,6 +23,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewPropertyAnimator;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -81,6 +82,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     long rt;         // time of the first tap on the completed screen (restart needs a second one)
     int shx, shy;    // current pixel-shift offset in px
     Runnable pend;   // slide change waiting for the slide-out animation
+    boolean[] alt = new boolean[0]; // which of the shown dhikr lines change between views
+    Pd ind;          // view dots at the left edge
     float tx, ty;    // where the current touch started
     boolean sw;      // a swipe was recognised, the rest of the touch is swallowed
     int shown = -2;  // which dhikr text is on screen (-1 none, slide index, slide count = completed)
@@ -92,6 +95,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     static class Vw {
         String[] t;
         float[] w;
+        boolean[] a; // a[i]: line i has alternatives, i.e. it changes between the views
     }
 
     // a dhikr profile: slides with a repeat count and one or more views. c = counts,
@@ -216,14 +220,18 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         for (int v = 0; v < nv; v++) {
             ArrayList<String> t = new ArrayList<>();
             ArrayList<Integer> w = new ArrayList<>();
+            ArrayList<Boolean> al = new ArrayList<>();
             for (int i = 0; i < tx.size(); i++) {
                 int j = tx.get(i).length == 1 ? 0 : v;
                 if (j < tx.get(i).length) {
                     t.add(tx.get(i)[j]);
                     w.add(wt.get(i)[j]);
+                    al.add(tx.get(i).length > 1);
                 }
             }
             out[v] = shares(t, w);
+            out[v].a = new boolean[al.size()];
+            for (int i = 0; i < al.size(); i++) out[v].a[i] = al.get(i);
         }
         return out;
     }
@@ -299,6 +307,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         lay.addView(bot, new LinearLayout.LayoutParams(-1, 0, .5f));
         f.addView(lay, new FrameLayout.LayoutParams(-1, -1));
 
+        // one dot per view of the slide at the left edge, the current one lit
+        ind = new Pd(this);
+        f.addView(ind, new FrameLayout.LayoutParams(dp(24), dp(100), Gravity.TOP | Gravity.START));
+
         cf = new Cf(this);
         f.addView(cf, new FrameLayout.LayoutParams(-1, -1));
 
@@ -321,7 +333,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         dl.bottomMargin = dp(112);
         f.addView(dt, dl);
 
-        ui = new View[]{lay, dt, se, rs, dn, vw};
+        ui = new View[]{lay, dt, se, rs, dn, vw, ind};
         setContentView(f);
     }
 
@@ -513,11 +525,16 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         ((LinearLayout.LayoutParams) bot.getLayoutParams()).weight = 1 - f;
         t.setAutoSizeTextTypeUniformWithConfiguration(6,
                 Math.max(8, (int) (num(0) * (1 - f) * 2)), 2, TypedValue.COMPLEX_UNIT_SP);
+        FrameLayout.LayoutParams ip = (FrameLayout.LayoutParams) ind.getLayoutParams();
+        ip.topMargin = dp(96);
+        ip.height = Math.max(0, (int) (f * dm.heightPixels) - dp(104));
+        ind.setLayoutParams(ip);
         lay.requestLayout();
     }
 
     // one auto-fitting text per line, each in its share of the dhikr area
-    void lines(String[] tx, float[] w) {
+    void lines(String[] tx, float[] w, boolean[] a) {
+        alt = a;
         dl.removeAllViews();
         for (int i = 0; i < tx.length; i++) {
             TextView x = new TextView(this);
@@ -535,6 +552,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         String big, prog = "";    // the big text and the slide progress line
         int key = -1;             // which dhikr text is shown: slide * 64 + view
         String[] tx = new String[0];
+        boolean[] ta = new boolean[0];
+        int vn = 1, ve = 0;       // views of this slide / the current one
         float[] tw = new float[0];
         if (pr == null) {
             cnt = n;
@@ -550,6 +569,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             key = k * 64;
             tx = new String[]{pf + "\ncompleted"};
             tw = new float[]{1};
+            ta = new boolean[1];
             prog = "all " + k + " slides done";
         } else {
             int s = slide(), nv = pr.v[s].length, ev = Math.min(vi, nv - 1);
@@ -560,11 +580,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             key = s * 64 + ev;
             tx = pr.v[s][ev].t;
             tw = pr.v[s][ev].w;
-            prog = "slide " + (s + 1) + " of " + pr.c.length + (nv > 1 ? "  -  view " + (ev + 1) + " of " + nv : "");
+            ta = pr.v[s][ev].a;
+            vn = nv;
+            ve = ev;
+            prog = "slide " + (s + 1) + " of " + pr.c.length;
         }
         if (key != shown) { // only rebuild and re-fit the text when the slide or view changes
             shown = key;
-            lines(tx, tw);
+            lines(tx, tw, ta);
         }
         pg.setText(prog);
         pg.setVisibility(pr == null ? View.GONE : View.VISIBLE);
@@ -576,6 +599,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         dt.setText(DT[dnOn ? p.getInt("dn", 0) : 0]);
         for (View x : ui) x.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);
         if (!dnOn) dt.setVisibility(View.INVISIBLE);
+        if (vn < 2) ind.setVisibility(View.INVISIBLE);
+        ind.n = vn;
+        ind.cur = ve;
+        ind.col = co;
+        ind.invalidate();
         cf.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);
         c.mode = mode;
         c.n = cnt;
@@ -635,7 +663,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             draw();
         };
         if (cv) r.run();
-        else flip(h ? (dx < 0 ? -1 : 1) : 0, h ? 0 : (dy < 0 ? -1 : 1), r);
+        else if (h) flip(dx < 0 ? -1 : 1, 0, r);
+        else flipV(dy < 0 ? -1 : 1, r);
     }
 
     void apply(int t) {
@@ -674,12 +703,45 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // finishes a running slide animation right away, including its pending change
     void land() {
         lay.animate().cancel();
+        for (int i = 0; i < dl.getChildCount(); i++) dl.getChildAt(i).animate().cancel();
         Runnable r = pend;
         pend = null;
         if (r != null) r.run();
         lay.setAlpha(1);
         lay.setTranslationX(shx);
         lay.setTranslationY(shy);
+        for (int i = 0; i < dl.getChildCount(); i++) {
+            dl.getChildAt(i).setTranslationY(0);
+            dl.getChildAt(i).setAlpha(1);
+        }
+    }
+
+    // Vertical swipe: only the lines that change between the views move; the persistent lines
+    // (slide title...), the number and the footer stay where they are.
+    void flipV(float fy, Runnable change) {
+        final float h = dl.getHeight() * .3f * fy;
+        pend = change;
+        boolean first = true;
+        for (int i = 0; i < dl.getChildCount() && i < alt.length; i++) {
+            if (!alt[i]) continue;
+            ViewPropertyAnimator a = dl.getChildAt(i).animate().translationY(h).alpha(0).setDuration(100);
+            if (first) {
+                first = false;
+                a.withEndAction(() -> {
+                    Runnable r = pend;
+                    pend = null;
+                    if (r != null) r.run();
+                    for (int j = 0; j < dl.getChildCount() && j < alt.length; j++) {
+                        if (!alt[j]) continue; // the rebuilt changing lines enter from the other side
+                        View x = dl.getChildAt(j);
+                        x.setTranslationY(-h);
+                        x.setAlpha(0);
+                        x.animate().translationY(0).alpha(1).setDuration(140);
+                    }
+                });
+            }
+        }
+        if (first) land(); // nothing to animate
     }
 
     // hold on the dhikr text: list of the slides to jump to; the title is the profile name,
@@ -872,6 +934,26 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                         c.drawLine(x - gw * .03f, y + bh * .8f, x + gw * 1.03f, y + bh * .2f, p);
                     }
                 }
+            }
+        }
+    }
+
+    // view dots at the left edge, like a launcher's page indicator: one per view of the
+    // slide, the current one lit in the slide colour, centred in the view's height
+    static class Pd extends View {
+        final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        int n, cur, col;
+
+        Pd(Context x) {
+            super(x);
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            float u = getResources().getDisplayMetrics().density, pitch = 16 * u;
+            float y = (getHeight() - (n - 1) * pitch) / 2f;
+            for (int i = 0; i < n; i++) {
+                p.setColor(i == cur ? col : 0xFF444444);
+                c.drawCircle(10 * u, y + i * pitch, (i == cur ? 4 : 3) * u, p);
             }
         }
     }

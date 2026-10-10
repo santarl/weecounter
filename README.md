@@ -48,7 +48,7 @@ Optional (settings, "Dhikr profile"). A profile is a UTF-8 text file, one file p
 
 - `[70]` in front of a line gives it a share of the text area, and the text is fitted into its share. `[_]` (or `[*]`) takes whatever is left of 100, `[10]` alone on a line is an empty spacer, `[]` hides a line. Lines without a prefix get the average share of the numbered ones (equal if none has one). Blank lines are dropped.
 - `|` writes alternative views of a line. A slide with `A | B | C` has three views: view 1 shows A, view 2 shows B, view 3 shows C, while lines without `|` stay on screen in every view.
-- The number shows `17/33`, with `slide 2 of 4` under it. A finished slide gives the lap buzz (the tap buzz if its count is 1); the last tap gives the "count reached" buzz and a completed screen with confetti.
+- The number shows `17/33`, with `slide 2 of 4` under it, and a column of dots on the left edge shows which view of the slide you are on. A finished slide gives the lap buzz (the tap buzz if its count is 1); the last tap gives the "count reached" buzz and a completed screen with confetti.
 - Gestures: swipe **left** to pull in the next slide (counts as done), **right** to go back to the previous one, **up** / **down** to switch between the views of a slide.
 - A line `# Title` inside a slide names it in the slide list (hold the dhikr text to open it and jump to a slide; tap the profile name at the top of the list to switch profile). Without a title, the start of the slide's first line is used.
 - A slide that is counted once shows a ring instead of `0/1`.
