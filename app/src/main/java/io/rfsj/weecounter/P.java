@@ -210,8 +210,10 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
             ok += add(u);
         }
         if (total > 0) {
-            Toast.makeText(this, "Imported " + ok + " of " + total, Toast.LENGTH_SHORT).show();
-            fill();
+            Toast.makeText(this, ok > 0 ? "Imported " + ok + " of " + total : "Not a dhikr profile",
+                    Toast.LENGTH_SHORT).show();
+            if (ok > 0) fill();
+            else finish(); // opened by mistake for some other file: go straight back
         }
     }
 

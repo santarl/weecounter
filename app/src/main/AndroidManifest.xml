@@ -44,6 +44,15 @@
                 <data android:pathPattern=".*\\..*\\.dhikr"/>
                 <data android:pathPattern=".*\\..*\\..*\\.dhikr"/>
             </intent-filter>
+            <!-- WhatsApp and others hand over unknown file types as application/octet-stream
+                 without the file name in the address, so the pattern above does not match.
+                 Anything that is not a dhikr profile is ignored with a toast. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:scheme="content"/>
+                <data android:mimeType="application/octet-stream"/>
+            </intent-filter>
         </activity>
         <activity
             android:name=".S"

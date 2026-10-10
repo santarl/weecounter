@@ -52,7 +52,7 @@ Optional (settings, "Dhikr profile"). A profile is a UTF-8 text file, one file p
 - Gestures: swipe **left** to pull in the next slide (counts as done), **right** to go back to the previous one, **up** / **down** to switch between the views of a slide.
 - A line `# Title` inside a slide names it in the slide list (hold the dhikr text to open it and jump to a slide; tap the profile name at the top of the list to switch profile). Without a title, the start of the slide's first line is used.
 - A slide that is counted once shows a ring instead of `0/1`.
-- Profiles are `.dhikr` files. Share one to weecounter from any app (for example WhatsApp's share sheet) to import it without opening the app first; pasted text works too if its first line is `# Name`.
+- Profiles are `.dhikr` files. Share one to weecounter from any app (for example WhatsApp's share sheet) to import it without opening the app first; pasted text works too if its first line is `# Name`. Tapping a `.dhikr` file in WhatsApp lists weecounter under "Open with" too (WhatsApp calls the file type BIN); files that are not profiles are ignored.
 - On the completed screen, tap once (a toast asks "Tap again to start over") and again within 4 seconds to restart the profile. `-1` goes back and hold-to-reset also starts over. Import, export and delete profiles on the profile screen (hold the red x to delete).
 
 ## Build
