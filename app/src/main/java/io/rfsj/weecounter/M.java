@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.RectF;
 import android.media.AudioAttributes;
 import android.os.Build;
 import android.os.Bundle;
@@ -32,6 +33,7 @@ import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -65,7 +67,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     SharedPreferences p;
     FrameLayout f;
-    LinearLayout lay, bot, dl;
+    FrameLayout lay;
+    LinearLayout bot, dl;
     V c;
     Cf cf;
     TextView t, pg, dt, se, rs, dn, vw;
@@ -78,7 +81,13 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     Pr pr;           // active dhikr profile, null = normal counter
     String pf = "";  // its name
     String em = "";  // emoji for the completed screen
-    int gp;          // dhikr progress in taps
+    int[] cn = new int[0]; // dhikr: count done in every slide (kept when you move between slides)
+    int cur;         // dhikr: current slide (== slide count: completed)
+    boolean edit;    // layout editor on
+    RectF[] er = new RectF[8]; // rectangles (px) of the editable elements, see def()
+    View[] ev;       // their views: menu, reset, -1, view, dhikr text, counter, footer, DND warning
+    Ed ed;           // the editor overlay
+    boolean[] small = new boolean[0]; // which shown dhikr lines are small print (title)
     int vi;          // chosen view of the slides (clamped per slide)
     long rt;         // time of the first tap on the completed screen (restart needs a second one)
     int shx, shy;    // current pixel-shift offset in px
@@ -287,25 +296,27 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         c = new V(this);
         f.addView(c, new FrameLayout.LayoutParams(-1, -1));
 
-        // Top to bottom: top bar buttons, the dhikr text (y%, with the slide title as its last
-        // line), the counter container (20% of the screen), the bottom buttons with the Do Not
-        // Disturb warning above them, and the status footer. Without a profile the text is
-        // gone and the number is centred.
-        lay = new LinearLayout(this);
-        lay.setOrientation(LinearLayout.VERTICAL);
+        // Every element sits at its own rectangle (see def() and place()), so all of them can be
+        // moved and resized in the layout editor. Default, top to bottom: top bar buttons, the
+        // dhikr text with the title line, the counter (20% of the screen), the Do Not Disturb
+        // warning, the bottom buttons and the status footer.
+        spx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 1, getResources().getDisplayMetrics());
+        sd = new ScaleGestureDetector(this, this);
+
+        lay = new FrameLayout(this);
         dl = new LinearLayout(this);
         dl.setOrientation(LinearLayout.VERTICAL);
-        dl.setPadding(dp(24), dp(44), dp(24), dp(8));
+        dl.setPadding(dp(8), dp(8), dp(8), dp(8));
         dl.setOnClickListener(this);     // a tap still counts, hold opens the slide list
         dl.setOnLongClickListener(this);
-        lay.addView(dl, new LinearLayout.LayoutParams(-1, 0, 1f));
+        lay.addView(dl);
         bot = new LinearLayout(this);
         bot.setOrientation(LinearLayout.VERTICAL);
         bot.setGravity(Gravity.CENTER);
         t = new TextView(this);
         t.setGravity(Gravity.CENTER);
         bot.addView(t, new LinearLayout.LayoutParams(-1, 0, 1f));
-        lay.addView(bot, new LinearLayout.LayoutParams(-1, 0, 1f));
+        lay.addView(bot);
         f.addView(lay, new FrameLayout.LayoutParams(-1, -1));
 
         // one dot per view of the slide at the left edge, the current one lit
@@ -315,52 +326,37 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         cf = new Cf(this);
         f.addView(cf, new FrameLayout.LayoutParams(-1, -1));
 
-        se = b("menu", Gravity.TOP | Gravity.START);
+        se = b("menu");
         se.setOnClickListener(this);
-        rs = b("reset", Gravity.TOP | Gravity.END);
+        rs = b("reset");
         rs.setOnClickListener(this);      // a tap explains, hold resets
         rs.setOnLongClickListener(this);
-        dn = b("-1", Gravity.BOTTOM | Gravity.START);
+        dn = b("-1");
         dn.setOnClickListener(this);
-        vw = b("", Gravity.BOTTOM | Gravity.END);
+        vw = b("");
         vw.setOnClickListener(this);
-
-        // status footer: slide progress at the very bottom edge
-        pg = new TextView(this);
-        pg.setTextSize(12);
+        pg = new TextView(this);          // status footer: slide progress
         pg.setTextColor(0xFF888888);
-        pg.setGravity(Gravity.CENTER);
-        pg.setPadding(dp(24), dp(4), dp(24), dp(4));
-        FrameLayout.LayoutParams fp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        fp.bottomMargin = dp(8);
-        f.addView(pg, fp);
-
-        // Do Not Disturb warning, just above the -1 and view buttons (not clickable)
-        dt = new TextView(this);
-        dt.setTextSize(12);
+        f.addView(pg, new FrameLayout.LayoutParams(-2, -2));
+        dt = new TextView(this);          // Do Not Disturb warning (not clickable)
         dt.setTextColor(0xFFFFB74D);
-        dt.setGravity(Gravity.CENTER);
-        dt.setPadding(dp(24), dp(8), dp(24), dp(8));
-        FrameLayout.LayoutParams wp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        wp.bottomMargin = dp(88);
-        f.addView(dt, wp);
+        f.addView(dt, new FrameLayout.LayoutParams(-2, -2));
 
+        ev = new View[]{se, rs, dn, vw, dl, bot, pg, dt};
         ui = new View[]{lay, dt, se, rs, dn, vw, ind, pg};
-        sd = new ScaleGestureDetector(this, this);
-        spx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 1, getResources().getDisplayMetrics());
+
+        ed = new Ed(this);
+        ed.setVisibility(View.GONE);
+        f.addView(ed, new FrameLayout.LayoutParams(-1, -1));
         setContentView(f);
     }
 
-    // All buttons use the same text size. The bottom ones reach down to the screen edge (extra
-    // bottom padding keeps their text where it looks good), the top ones are as thin as the text.
-    TextView b(String s, int g) {
-        boolean low = (g & Gravity.VERTICAL_GRAVITY_MASK) == Gravity.BOTTOM;
+    // a button: its rectangle and text size are set in place1()
+    TextView b(String s) {
         TextView x = new TextView(this);
         x.setText(s);
-        x.setTextSize(16);
         x.setTextColor(0xFF666666);
-        x.setPadding(dp(20), dp(low ? 16 : 14), dp(20), dp(low ? 56 : 8));
-        f.addView(x, new FrameLayout.LayoutParams(-2, -2, g));
+        f.addView(x, new FrameLayout.LayoutParams(-2, -2));
         return x;
     }
 
@@ -453,7 +449,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         land();
         undo();
         SharedPreferences.Editor e = p.edit().putInt("n", n).putInt("md", mode).putInt("vi", vi);
-        if (pr != null) e.putInt("g:" + pf, gp);
+        if (pr != null) {
+            StringBuilder sb = new StringBuilder();
+            for (int c : cn) sb.append(c).append(',');
+            e.putString("cn:" + pf, sb.toString()).putInt("cu:" + pf, cur);
+        }
         e.apply();
     }
 
@@ -513,55 +513,184 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
     }
 
-    // index of the slide the dhikr progress is in (== slide count when finished)
+    // the slide being counted (== slide count when the profile is completed)
     int slide() {
-        int s = 0;
-        while (s < pr.c.length && pr.cu[s + 1] <= gp) s++;
-        return s;
+        return pr == null ? 0 : Math.min(cur, pr.c.length);
     }
 
-    // Standard sizes: a line is as big as fits its share of the dhikr area, but at most 34sp
-    // (14sp for small print, i.e. shares under 20%), times the scale the user pinched for this
-    // slide and view. If a pinched size does not fit, the dhikr area grows at the cost of the
-    // counter container (20% of the screen, down to 10%); sizes that still do not fit shrink.
+    // first slide at or after i that is not finished yet (slide count if there is none)
+    int open(int i) {
+        while (i < pr.c.length && cn[i] >= pr.c[i]) i++;
+        return i;
+    }
+
+    // ---- layout: every element has a rectangle (px) that the layout editor can change ----
+
+    static final String[] LB = {"menu", "reset", "-1", "view: blackout"}; // widest labels, for the default widths
+
+    float tw(int i) {
+        Paint q = new Paint();
+        q.setTextSize(16 * spx);
+        return q.measureText(LB[i]) + dp(40);
+    }
+
+    // default rectangle of element i: 0 menu, 1 reset, 2 -1, 3 view, 4 dhikr text, 5 counter,
+    // 6 footer, 7 Do Not Disturb warning. Top to bottom: top bar, dhikr text with the title
+    // line, counter (20% of the screen), warning, bottom buttons, footer.
+    RectF def(int i) {
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        float W = dm.widthPixels, H = dm.heightPixels, c0 = H - dp(124) - H * .2f;
+        switch (i) {
+            case 0: return new RectF(0, 0, tw(0), dp(41));
+            case 1: return new RectF(W - tw(1), 0, W, dp(41));
+            case 2: return new RectF(0, H - dp(86), tw(2), H - dp(45));
+            case 3: return new RectF(W - tw(3), H - dp(86), W, H - dp(45));
+            case 4: return new RectF(0, dp(44), W, c0);
+            case 5: return new RectF(0, c0, W, H - dp(124));
+            case 6: return new RectF(W / 2 - dp(100), H - dp(36), W / 2 + dp(100), H - dp(8));
+            default: return new RectF(0, H - dp(124), W, H - dp(88));
+        }
+    }
+
+    // saved rectangle of element i (stored as fractions of the screen), else its default
+    RectF rect(int i) {
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        float W = dm.widthPixels, H = dm.heightPixels;
+        if (i == 5 && pr == null && !edit) return new RectF(0, 0, W, H); // normal counter: the whole screen
+        try {
+            String[] a = p.getString("el" + i, "").split(",");
+            return new RectF(Float.parseFloat(a[0]) * W, Float.parseFloat(a[1]) * H,
+                    Float.parseFloat(a[2]) * W, Float.parseFloat(a[3]) * H);
+        } catch (Exception e) {
+            return def(i);
+        }
+    }
+
+    // puts element i at its rectangle; text sizes follow the height of the rectangle
+    void place1(int i) {
+        float H = getResources().getDisplayMetrics().heightPixels;
+        RectF r = er[i];
+        View x = ev[i];
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams((int) r.width(), (int) r.height(),
+                Gravity.TOP | Gravity.START);
+        lp.leftMargin = (int) r.left;
+        lp.topMargin = (int) r.top;
+        if (i == 2 || i == 3) { // the bottom buttons also react below their text, down to the screen edge
+            lp.height = (int) (H - r.top);
+            x.setPadding(0, 0, 0, (int) (H - r.bottom));
+        }
+        if (i < 4 || i > 5) {
+            TextView tv = (TextView) x;
+            tv.setGravity(Gravity.CENTER);
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, (i < 4 ? 16 : 12) * spx * r.height() / def(i).height());
+        }
+        x.setLayoutParams(lp);
+        if (i == 4) { // the view dots follow the dhikr text
+            FrameLayout.LayoutParams ip = (FrameLayout.LayoutParams) ind.getLayoutParams();
+            ip.topMargin = (int) r.top;
+            ip.height = (int) r.height();
+            ind.setLayoutParams(ip);
+        }
+    }
+
+    void place() {
+        for (int i = 0; i < er.length; i++) {
+            er[i] = rect(i);
+            place1(i);
+        }
+    }
+
+    // keeps a rectangle on the screen and at least a finger wide
+    void fix(int i, boolean move) {
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        float W = dm.widthPixels, H = dm.heightPixels, mn = dp(32);
+        RectF r = er[i];
+        if (r.width() < mn) {
+            r.left = r.centerX() - mn / 2;
+            r.right = r.left + mn;
+        }
+        if (r.height() < mn) {
+            r.top = r.centerY() - mn / 2;
+            r.bottom = r.top + mn;
+        }
+        if (move) {
+            r.offset(Math.max(0, -r.left) - Math.max(0, r.right - W), Math.max(0, -r.top) - Math.max(0, r.bottom - H));
+        } else {
+            r.left = Math.max(0, r.left);
+            r.top = Math.max(0, r.top);
+            r.right = Math.min(W, r.right);
+            r.bottom = Math.min(H, r.bottom);
+        }
+    }
+
+    // remembers the rectangle of element i for good and lays everything out again
+    void save(int i) {
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        float W = dm.widthPixels, H = dm.heightPixels;
+        RectF r = er[i];
+        p.edit().putString("el" + i, r.left / W + "," + r.top / H + "," + r.right / W + "," + r.bottom / H).apply();
+        shown = -2;
+        draw();
+    }
+
+    void enterEdit() {
+        edit = true;
+        cv = false;
+        ed.sel = -1;
+        shown = -2;
+        draw();
+        ed.setVisibility(View.VISIBLE);
+        ed.invalidate();
+        Toast.makeText(this, "Tap an element to select it", Toast.LENGTH_SHORT).show();
+    }
+
+    void exitEdit() {
+        edit = false;
+        ed.setVisibility(View.GONE);
+        shown = -2;
+        draw();
+    }
+
+    void resetLayout() {
+        SharedPreferences.Editor e = p.edit();
+        for (int i = 0; i < er.length; i++) e.remove("el" + i);
+        e.apply();
+        shown = -2;
+        draw();
+    }
+
+    @Override public void onBackPressed() {
+        if (edit) exitEdit();
+        else super.onBackPressed();
+    }
+
+    // Standard sizes: a line is as big as fits its share of the dhikr rectangle, but at most 34sp
+    // (14sp for small print, i.e. shares under 20%, which is never scaled), times the scale the
+    // user pinched for this slide and view, as far as it still fits.
     void lines(String[] tx, float[] w, boolean[] a, float z) {
         alt = a;
         dl.removeAllViews();
-        boolean dk = pr != null;
-        DisplayMetrics dm = getResources().getDisplayMetrics();
-        float H = dm.heightPixels, sum = 0, need = 0;
-        int W = dm.widthPixels - dp(48), top = dp(44), bz = dp(124), pb = dp(8), n = tx.length;
+        RectF r = er[4];
+        int W = (int) r.width() - dp(16), n = tx.length;
+        float area = r.height() - dp(16), sum = 0;
         for (float x : w) sum += x;
-        float a0 = H - top - bz - pb - H * .2f, amax = H - top - bz - pb - H * .1f;
         bs = new float[n];
-        float[] sz = new float[n];
-        TextPaint tp = new TextPaint();
+        small = new boolean[n];
         for (int i = 0; i < n; i++) {
-            if (tx[i].isEmpty()) continue;
-            bs[i] = fit(tx[i], W, a0 * w[i] / sum, (w[i] / sum < .2f ? 14 : 34) * spx);
-            sz[i] = Math.max(8 * spx, Math.min(140 * spx, bs[i] * z));
-            tp.setTextSize(sz[i]);
-            need = Math.max(need, height(tx[i], tp, W) * sum / w[i] / .97f);
-        }
-        float area = Math.min(amax, Math.max(a0, need));
-        for (int i = 0; i < n; i++) {
-            if (need > amax && !tx[i].isEmpty()) sz[i] = Math.min(sz[i], fit(tx[i], W, amax * w[i] / sum, sz[i]));
+            small[i] = w[i] / sum < .2f;
+            float sz = 8 * spx;
+            if (!tx[i].isEmpty()) {
+                float slot = area * w[i] / sum;
+                bs[i] = fit(tx[i], W, slot, (small[i] ? 14 : 34) * spx);
+                sz = small[i] ? bs[i] : fit(tx[i], W, slot, bs[i] * z);
+            }
             TextView x = new TextView(this);
             x.setGravity(Gravity.CENTER);
             x.setTextColor(0xFFEEEEEE);
-            x.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.max(1, sz[i]));
+            x.setTextSize(TypedValue.COMPLEX_UNIT_PX, sz);
             x.setText(tx[i]);
             dl.addView(x, new LinearLayout.LayoutParams(-1, 0, w[i]));
         }
-        lay.setPadding(0, 0, 0, dk ? bz : 0);
-        LinearLayout.LayoutParams bp = (LinearLayout.LayoutParams) bot.getLayoutParams();
-        bp.height = dk ? (int) (H - top - bz - pb - area) : 0;
-        bp.weight = dk ? 0 : 1;
-        bot.setLayoutParams(bp);
-        FrameLayout.LayoutParams ip = (FrameLayout.LayoutParams) ind.getLayoutParams();
-        ip.topMargin = top;
-        ip.height = (int) area;
-        ind.setLayoutParams(ip);
         lay.requestLayout();
     }
 
@@ -593,12 +722,23 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         int vn = 1, ve = 0;       // views of this slide / the current one
         float zz = 1;             // text scale the user pinched for this slide and view
         float[] tw = new float[0];
-        if (pr == null) {
+        boolean demo = edit && pr == null; // the layout editor shows a sample dhikr panel
+        if (demo) {
+            cnt = 12;
+            lap = 33;
+            ci = 0;
+            big = "12/33";
+            key = -3;
+            tx = new String[]{"Dhikr text", "Slide title"};
+            tw = new float[]{90, 10};
+            ta = new boolean[2];
+            prog = "slide 2 of 4";
+        } else if (pr == null) {
             cnt = n;
             lap = st;
             ci = n / st;
             big = Integer.toString(n);
-        } else if (gp >= pr.tot) {
+        } else if (cur >= pr.c.length) {
             int k = pr.c.length;
             cnt = 0;
             lap = 1;
@@ -610,11 +750,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             ta = new boolean[1];
             prog = "all " + k + " slides done";
         } else {
-            int s = slide(), nv = pr.v[s].length, ev = Math.min(vi, nv - 1);
-            cnt = gp - pr.cu[s];
+            int s = cur, nv = pr.v[s].length, ev = Math.min(vi, nv - 1);
+            cnt = cn[s];
             lap = pr.c[s];
             ci = s;
-            big = lap > 1 ? cnt + "/" + lap : "\u25CB"; // a ring for a slide that is counted once
+            big = lap > 1 ? cnt + "/" + lap : (cnt > 0 ? "\u25CF" : "\u25CB"); // a ring (filled once done) for a slide counted once
             key = s * 64 + ev;
             tx = pr.v[s][ev].t;
             tw = pr.v[s][ev].w;
@@ -626,19 +766,21 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
         if (key != shown) { // only rebuild and re-fit the text when the slide or view changes
             shown = key;
+            place();
             lines(tx, tw, ta, zz);
         }
+        boolean dk = pr != null || demo;
         pg.setText(prog);
-        dl.setVisibility(pr == null ? View.GONE : View.VISIBLE);
+        dl.setVisibility(dk ? View.VISIBLE : View.GONE);
         int co = cl[ci % cl.length];
         t.setText(big);
         t.setTextColor(co);
         vw.setText("view: " + NM[mode]);
-        dt.setText(DT[dnOn ? p.getInt("dn", 0) : 0]);
+        dt.setText(DT[dnOn ? p.getInt("dn", 0) : (edit ? 1 : 0)]);
         for (View x : ui) x.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);
-        if (!dnOn) dt.setVisibility(View.INVISIBLE);
+        if (!dnOn && !edit) dt.setVisibility(View.INVISIBLE);
         if (vn < 2) ind.setVisibility(View.INVISIBLE);
-        if (pr == null) pg.setVisibility(View.INVISIBLE);
+        if (!dk) pg.setVisibility(View.INVISIBLE);
         ind.n = vn;
         ind.cur = ve;
         ind.col = co;
@@ -659,15 +801,39 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         if (pf.length() > 0) {
             String tx = getSharedPreferences("d", 0).getString(pf, null);
             pr = tx == null ? null : parse(tx);
-            if (pr == null) pf = "";
-            else gp = Math.min(p.getInt("g:" + pf, 0), pr.tot);
+            if (pr == null) {
+                pf = "";
+            } else {
+                int k = pr.c.length;
+                cn = new int[k];
+                String sv = p.getString("cn:" + pf, null);
+                if (sv != null) {
+                    try {
+                        String[] a = sv.split(",");
+                        for (int i = 0; i < k && i < a.length; i++)
+                            cn[i] = Math.max(0, Math.min(pr.c[i], Integer.parseInt(a[i])));
+                    } catch (Exception e) {
+                        Arrays.fill(cn, 0);
+                    }
+                    cur = Math.max(0, Math.min(k, p.getInt("cu:" + pf, 0)));
+                } else { // progress saved by an older version: one position counted in taps
+                    int g0 = 0;
+                    try {
+                        g0 = p.getInt("g:" + pf, 0);
+                    } catch (Exception e) {
+                        // none
+                    }
+                    for (int i = 0; i < k; i++) cn[i] = Math.max(0, Math.min(pr.c[i], g0 - pr.cu[i]));
+                    cur = open(0);
+                }
+            }
         }
     }
 
     // Swipes (dhikr only): left = next slide (counts as done), right = previous slide,
     // up / down = next / previous view. A recognised swipe never counts as a tap or a hold.
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
-        if (pr != null) {
+        if (pr != null && !edit) {
             sd.onTouchEvent(e);
             if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN && !sw) {
                 sw = true; // a second finger is a pinch: no tap, hold or swipe
@@ -712,18 +878,19 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         else flipV(dy < 0 ? -1 : 1, r);
     }
 
+    // slide changes keep the counts of every slide
     void apply(int t) {
-        int s = slide();
-        if (t == 1) {                       // previous slide, from its start
-            gp = pr.cu[Math.max(0, s - 1)];
+        int s = slide(), k = pr.c.length;
+        if (t == 1) {                       // previous slide
+            cur = Math.max(0, s - 1);
             cf.t0 = 0;
-        } else if (s < pr.c.length && t == 0) { // next slide, counts as done
-            gp = pr.cu[s + 1];
-            if (gp >= pr.tot) {
+        } else if (s < k && t == 0) {       // next slide; past the last one the profile is completed
+            cur = s + 1;
+            if (cur >= k) {
                 em = EM[new Random().nextInt(EM.length)];
                 if (!cv) cf.go();
             }
-        } else if (s < pr.c.length) {       // next / previous view
+        } else if (s < k) {                 // next / previous view
             int nv = pr.v[s].length;
             vi = (Math.min(vi, nv - 1) + (t == 2 ? 1 : nv - 1)) % nv;
         }
@@ -793,10 +960,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // tap it to pick another profile
     void picker() {
         if (pr == null) return;
-        int cur = slide(), k = pr.c.length;
+        int at = slide(), k = pr.c.length;
         String[] it = new String[k];
         for (int i = 0; i < k; i++)
-            it[i] = (i == cur ? "\u25B6 " : "    ") + (i + 1) + ". " + pr.ti[i] + (pr.c[i] > 1 ? "  x" + pr.c[i] : "");
+            it[i] = (i == at ? "\u25B6 " : "    ") + (i + 1) + ". " + pr.ti[i]
+                    + (pr.c[i] > 1 ? "  " + cn[i] + "/" + pr.c[i] : cn[i] > 0 ? "  \u2713" : "");
         TextView h = new TextView(this);
         h.setText(pf);
         h.setTextSize(18);
@@ -804,22 +972,27 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         h.setPadding(dp(24), dp(20), dp(24), dp(8));
         final AlertDialog d = new AlertDialog.Builder(this).setCustomTitle(h).setItems(it, (dg, i) -> {
             land();
-            gp = pr.cu[i];
+            cur = i;
             cf.t0 = 0;
             z(vt);
             draw();
         }).create();
         d.show();
-        d.getListView().setSelection(Math.max(0, cur - 2));
+        d.getListView().setSelection(Math.max(0, at - 2));
     }
 
-    // top-left menu: settings and the profile screen
+    // top-left menu
     void menu(View anchor) {
         PopupMenu m = new PopupMenu(this, anchor);
         m.getMenu().add(0, 1, 0, "Settings");
         m.getMenu().add(0, 2, 1, "Profiles");
+        m.getMenu().add(0, 3, 2, "Edit layout");
+        m.getMenu().add(0, 4, 3, "Reset layout");
         m.setOnMenuItemClickListener(i -> {
-            startActivity(new Intent(this, i.getItemId() == 1 ? S.class : P.class));
+            int id = i.getItemId();
+            if (id == 3) enterEdit();
+            else if (id == 4) resetLayout();
+            else startActivity(new Intent(this, id == 1 ? S.class : P.class));
             return true;
         });
         m.show();
@@ -841,7 +1014,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     @Override public boolean onScale(ScaleGestureDetector d) {
         zs = Math.max(.4f, Math.min(2.5f, zs * d.getScaleFactor()));
         for (int i = 0; i < dl.getChildCount() && i < bs.length; i++)
-            if (bs[i] > 0) ((TextView) dl.getChildAt(i)).setTextSize(TypedValue.COMPLEX_UNIT_PX, bs[i] * zs);
+            if (bs[i] > 0 && !small[i]) ((TextView) dl.getChildAt(i)).setTextSize(TypedValue.COMPLEX_UNIT_PX, bs[i] * zs);
         return true;
     }
 
@@ -877,12 +1050,15 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // Dhikr: a finished slide buzzes like a lap (unless its count is 1), the last tap gives
     // the "count reached" buzz and the completed screen, where a double tap starts over.
     void inc() {
+        if (edit) return;
         if (pr != null) {
-            if (gp >= pr.tot) { // completed: the first tap asks, a second one within 4 s starts over
+            int k = pr.c.length;
+            if (cur >= k) { // completed: the first tap asks, a second one within 4 s starts over
                 long now = SystemClock.uptimeMillis();
                 if (rt != 0 && now - rt < 4000) {
                     rt = 0;
-                    gp = 0;
+                    cur = 0;
+                    Arrays.fill(cn, 0);
                     cf.t0 = 0;
                     z(vr);
                     draw();
@@ -893,11 +1069,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 }
                 return;
             }
-            int s = slide();
-            gp++;
-            boolean done = gp == pr.tot;
             rt = 0;
-            z(done ? vl : gp == pr.cu[s + 1] && pr.c[s] > 1 ? vc : vt);
+            boolean full = cn[cur] >= pr.c[cur]; // a finished slide visited again: a tap moves on
+            if (!full) cn[cur]++;
+            boolean fin = cn[cur] >= pr.c[cur];
+            int nx = fin ? open(cur + 1) : cur;
+            boolean done = fin && nx >= k;
+            z(done ? vl : fin && !full && pr.c[cur] > 1 ? vc : vt);
+            cur = nx;
             if (done) {
                 em = EM[new Random().nextInt(EM.length)];
                 if (!cv) cf.go();
@@ -910,8 +1089,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     void dec() {
+        if (edit) return;
         if (pr != null) {
-            if (gp > 0) gp--;
+            int k = pr.c.length;
+            if (cur >= k) cur = k - 1;                 // from the completed screen back into the last slide
+            else if (cn[cur] == 0 && cur > 0) cur--;   // undo the last tap of the previous slide
+            if (cn[cur] > 0) cn[cur]--;
             cf.t0 = 0;
         } else if (n > 0) {
             n--;
@@ -923,7 +1106,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // optional volume-key counting; the keys are swallowed while it is on (no repeat while held)
     @Override public boolean onKeyDown(int k, KeyEvent e) {
         boolean up = k == KeyEvent.KEYCODE_VOLUME_UP;
-        if (vk == 0 || !up && k != KeyEvent.KEYCODE_VOLUME_DOWN) return super.onKeyDown(k, e);
+        if (edit || vk == 0 || !up && k != KeyEvent.KEYCODE_VOLUME_DOWN) return super.onKeyDown(k, e);
         if (e.getRepeatCount() == 0) {
             if (vk == 1 || vk == 2 && up || vk == 3 && !up) inc();
             else dec();
@@ -943,8 +1126,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             return true;
         }
         if (x == rs) {
-            if (pr != null) gp = 0;
-            else n = 0;
+            if (pr != null) {
+                cur = 0;
+                Arrays.fill(cn, 0);
+            } else {
+                n = 0;
+            }
             cf.t0 = 0;
             z(vr);
         } else {
@@ -1004,6 +1191,159 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     }
                 }
             }
+        }
+    }
+
+    // Layout editor overlay: tap an element to select it (bounding box), drag inside to move it,
+    // drag an edge or corner to resize it, pinch to scale it. Changes are saved when you let go.
+    static class Ed extends View implements ScaleGestureDetector.OnScaleGestureListener {
+        final M m;
+        final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        final ScaleGestureDetector sd;
+        int sel = -1, mode, sides; // mode: 0 idle, 1 move, 2 resize, 3 pinch; sides: 1 left, 2 top, 4 right, 8 bottom
+        float lx, ly;
+        boolean moved;
+
+        Ed(M m) {
+            super(m);
+            this.m = m;
+            sd = new ScaleGestureDetector(m, this);
+        }
+
+        // the smallest element under the finger
+        int pick(float x, float y) {
+            int b = -1;
+            float best = Float.MAX_VALUE;
+            for (int i = 0; i < m.er.length; i++) {
+                RectF r = m.er[i];
+                if (r.contains(x, y) && r.width() * r.height() < best) {
+                    best = r.width() * r.height();
+                    b = i;
+                }
+            }
+            return b;
+        }
+
+        // which sides of r the finger is on (a corner is two sides)
+        int edge(RectF r, float x, float y) {
+            float zx = Math.min(m.dp(24), r.width() / 3), zy = Math.min(m.dp(24), r.height() / 3);
+            boolean iy = y >= r.top - zy && y <= r.bottom + zy, ix = x >= r.left - zx && x <= r.right + zx;
+            int s = 0;
+            if (iy && Math.abs(x - r.left) < zx) s |= 1;
+            if (ix && Math.abs(y - r.top) < zy) s |= 2;
+            if (iy && Math.abs(x - r.right) < zx) s |= 4;
+            if (ix && Math.abs(y - r.bottom) < zy) s |= 8;
+            return s;
+        }
+
+        @Override public boolean onTouchEvent(MotionEvent e) {
+            sd.onTouchEvent(e);
+            float x = e.getX(), y = e.getY();
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    lx = x;
+                    ly = y;
+                    mode = 0;
+                    moved = false;
+                    if (y < m.dp(48) && Math.abs(x - getWidth() / 2f) < m.dp(44)) {
+                        m.exitEdit();
+                        return true;
+                    }
+                    if (sel >= 0) {
+                        sides = edge(m.er[sel], x, y);
+                        if (sides != 0) mode = 2;
+                        else if (m.er[sel].contains(x, y)) mode = 1;
+                    }
+                    if (mode == 0) {
+                        sel = pick(x, y);
+                        mode = sel >= 0 ? 1 : 0;
+                    }
+                    invalidate();
+                    return true;
+                case MotionEvent.ACTION_MOVE: {
+                    if (e.getPointerCount() > 1 || sel < 0 || mode == 0 || mode == 3) return true;
+                    float dx = x - lx, dy = y - ly;
+                    lx = x;
+                    ly = y;
+                    RectF r = m.er[sel];
+                    if (mode == 1) {
+                        r.offset(dx, dy);
+                    } else {
+                        if ((sides & 1) != 0) r.left += dx;
+                        if ((sides & 2) != 0) r.top += dy;
+                        if ((sides & 4) != 0) r.right += dx;
+                        if ((sides & 8) != 0) r.bottom += dy;
+                    }
+                    m.fix(sel, mode == 1);
+                    m.place1(sel);
+                    moved = true;
+                    invalidate();
+                    return true;
+                }
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (moved && sel >= 0 && mode != 3) m.save(sel);
+                    mode = 0;
+                    moved = false;
+                    invalidate();
+                    return true;
+                default:
+                    return true;
+            }
+        }
+
+        @Override public boolean onScaleBegin(ScaleGestureDetector d) {
+            if (sel < 0) return false;
+            mode = 3;
+            return true;
+        }
+
+        @Override public boolean onScale(ScaleGestureDetector d) {
+            RectF r = m.er[sel];
+            float s = d.getScaleFactor();
+            r.inset(-r.width() * (s - 1) / 2, -r.height() * (s - 1) / 2);
+            m.fix(sel, false);
+            m.place1(sel);
+            moved = true;
+            invalidate();
+            return true;
+        }
+
+        @Override public void onScaleEnd(ScaleGestureDetector d) {
+            if (moved && sel >= 0) m.save(sel);
+            mode = 0;
+            moved = false;
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            float u = m.dp(1);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(u);
+            p.setColor(0x88FFFFFF);
+            for (int i = 0; i < m.er.length; i++) if (i != sel) c.drawRect(m.er[i], p);
+            if (sel >= 0) {
+                RectF r = m.er[sel];
+                p.setColor(0xFF00E676);
+                p.setStrokeWidth(2 * u);
+                c.drawRect(r, p);
+                p.setStyle(Paint.Style.FILL);
+                float[] hx = {r.left, r.centerX(), r.right}, hy = {r.top, r.centerY(), r.bottom};
+                for (int a = 0; a < 3; a++)
+                    for (int b = 0; b < 3; b++)
+                        if (a != 1 || b != 1) c.drawCircle(hx[a], hy[b], 5 * u, p);
+            }
+            p.setStyle(Paint.Style.FILL);
+            float cx = getWidth() / 2f;
+            p.setColor(0xFF00E676);
+            c.drawRoundRect(cx - 40 * u, 6 * u, cx + 40 * u, 42 * u, 18 * u, 18 * u, p);
+            p.setTextAlign(Paint.Align.CENTER);
+            p.setColor(0xFF000000);
+            p.setTextSize(16 * m.spx);
+            c.drawText("done", cx, 30 * u, p);
+            p.setColor(0xFFAAAAAA);
+            p.setTextSize(12 * m.spx);
+            c.drawText("tap an element, drag to move, pinch to scale", cx, 62 * u, p);
+            c.drawText("drag an edge or corner to resize", cx, 78 * u, p);
         }
     }
 
