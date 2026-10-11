@@ -84,6 +84,7 @@ public class S extends Activity implements View.OnClickListener {
         df = tv("RESET TO DEFAULTS", 0xFFFF5252, m);
         df.setOnClickListener(this);
         l.addView(df);
+        l.addView(tv("Also forgets the text sizes you set by pinching on dhikr slides.", 0xFF888888, 0));
 
         ScrollView s = new ScrollView(this);
         s.setBackgroundColor(0xFF000000);
@@ -143,6 +144,13 @@ public class S extends Activity implements View.OnClickListener {
         }
     }
 
+    // forget the text sizes pinched on dhikr slides
+    void clearZ() {
+        SharedPreferences.Editor e = p.edit();
+        for (String k : p.getAll().keySet()) if (k.startsWith("fz:")) e.remove(k);
+        e.apply();
+    }
+
     @Override public void onClick(View x) {
         if (x == dd) {
             dm = (dm + 1) % DN.length;
@@ -161,6 +169,7 @@ public class S extends Activity implements View.OnClickListener {
             vol();
         } else {
             fill(true);
+            clearZ();
         }
     }
 

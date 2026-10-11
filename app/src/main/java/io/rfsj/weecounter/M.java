@@ -22,20 +22,21 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewPropertyAnimator;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.Random;
-import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class M extends Activity implements View.OnClickListener, View.OnLongClickListener, Runnable {
+public class M extends Activity implements View.OnClickListener, View.OnLongClickListener, ScaleGestureDetector.OnScaleGestureListener, Runnable {
     // {pref key, default, settings label}; indices 0..10 are used below and in S
     // (the first five are numeric fields)
     static final String[][] D = {
@@ -84,6 +85,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     Runnable pend;   // slide change waiting for the slide-out animation
     boolean[] alt = new boolean[0]; // which of the shown dhikr lines change between views
     Pd ind;          // view dots at the left edge
+    ScaleGestureDetector sd; // pinch to resize the dhikr text of a slide / view
+    float zs;        // text scale while pinching
+    float spx;       // px per sp
+    float[] bs = new float[0]; // standard text size (px, before scaling) of the shown lines
     float tx, ty;    // where the current touch started
     boolean sw;      // a swipe was recognised, the rest of the touch is swallowed
     int shown = -2;  // which dhikr text is on screen (-1 none, slide index, slide count = completed)
@@ -282,29 +287,25 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         c = new V(this);
         f.addView(c, new FrameLayout.LayoutParams(-1, -1));
 
-        // top half: dhikr text (only with a profile), bottom half: the number with the slide
-        // progress under it. Without a profile the text is gone and the number is centered.
+        // Top to bottom: top bar buttons, the dhikr text (y%, with the slide title as its last
+        // line), the counter container (20% of the screen), the bottom buttons with the Do Not
+        // Disturb warning above them, and the status footer. Without a profile the text is
+        // gone and the number is centred.
         lay = new LinearLayout(this);
         lay.setOrientation(LinearLayout.VERTICAL);
         dl = new LinearLayout(this);
         dl.setOrientation(LinearLayout.VERTICAL);
-        dl.setPadding(dp(24), dp(96), dp(24), dp(8));
+        dl.setPadding(dp(24), dp(44), dp(24), dp(8));
         dl.setOnClickListener(this);     // a tap still counts, hold opens the slide list
         dl.setOnLongClickListener(this);
-        lay.addView(dl, new LinearLayout.LayoutParams(-1, 0, .5f));
+        lay.addView(dl, new LinearLayout.LayoutParams(-1, 0, 1f));
         bot = new LinearLayout(this);
         bot.setOrientation(LinearLayout.VERTICAL);
         bot.setGravity(Gravity.CENTER);
         t = new TextView(this);
         t.setGravity(Gravity.CENTER);
         bot.addView(t, new LinearLayout.LayoutParams(-1, 0, 1f));
-        pg = new TextView(this);
-        pg.setTextSize(14);
-        pg.setTextColor(0xFF888888);
-        pg.setGravity(Gravity.CENTER);
-        pg.setPadding(0, dp(4), 0, dp(24));
-        bot.addView(pg, new LinearLayout.LayoutParams(-1, -2));
-        lay.addView(bot, new LinearLayout.LayoutParams(-1, 0, .5f));
+        lay.addView(bot, new LinearLayout.LayoutParams(-1, 0, 1f));
         f.addView(lay, new FrameLayout.LayoutParams(-1, -1));
 
         // one dot per view of the slide at the left edge, the current one lit
@@ -314,14 +315,25 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         cf = new Cf(this);
         f.addView(cf, new FrameLayout.LayoutParams(-1, -1));
 
-        se = b("settings", 14, Gravity.TOP | Gravity.START);
+        se = b("menu", Gravity.TOP | Gravity.START);
         se.setOnClickListener(this);
-        rs = b("HOLD TO RESET", 14, Gravity.TOP | Gravity.END);
+        rs = b("reset", Gravity.TOP | Gravity.END);
+        rs.setOnClickListener(this);      // a tap explains, hold resets
         rs.setOnLongClickListener(this);
-        dn = b("-1", 28, Gravity.BOTTOM | Gravity.START);
+        dn = b("-1", Gravity.BOTTOM | Gravity.START);
         dn.setOnClickListener(this);
-        vw = b("", 14, Gravity.BOTTOM | Gravity.END);
+        vw = b("", Gravity.BOTTOM | Gravity.END);
         vw.setOnClickListener(this);
+
+        // status footer: slide progress at the very bottom edge
+        pg = new TextView(this);
+        pg.setTextSize(12);
+        pg.setTextColor(0xFF888888);
+        pg.setGravity(Gravity.CENTER);
+        pg.setPadding(dp(24), dp(4), dp(24), dp(4));
+        FrameLayout.LayoutParams fp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        fp.bottomMargin = dp(8);
+        f.addView(pg, fp);
 
         // Do Not Disturb warning, just above the -1 and view buttons (not clickable)
         dt = new TextView(this);
@@ -329,23 +341,26 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         dt.setTextColor(0xFFFFB74D);
         dt.setGravity(Gravity.CENTER);
         dt.setPadding(dp(24), dp(8), dp(24), dp(8));
-        FrameLayout.LayoutParams dl = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        dl.bottomMargin = dp(112);
-        f.addView(dt, dl);
+        FrameLayout.LayoutParams wp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        wp.bottomMargin = dp(88);
+        f.addView(dt, wp);
 
-        ui = new View[]{lay, dt, se, rs, dn, vw, ind};
+        ui = new View[]{lay, dt, se, rs, dn, vw, ind, pg};
+        sd = new ScaleGestureDetector(this, this);
+        spx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 1, getResources().getDisplayMetrics());
         setContentView(f);
     }
 
-    TextView b(String s, int sp, int g) {
+    // All buttons use the same text size. The bottom ones reach down to the screen edge (extra
+    // bottom padding keeps their text where it looks good), the top ones are as thin as the text.
+    TextView b(String s, int g) {
+        boolean low = (g & Gravity.VERTICAL_GRAVITY_MASK) == Gravity.BOTTOM;
         TextView x = new TextView(this);
         x.setText(s);
-        x.setTextSize(sp);
+        x.setTextSize(16);
         x.setTextColor(0xFF666666);
-        x.setPadding(dp(24), dp(16), dp(24), dp(16));
-        FrameLayout.LayoutParams l = new FrameLayout.LayoutParams(-2, -2, g);
-        l.setMargins(0, dp(40), 0, dp(40));
-        f.addView(x, l);
+        x.setPadding(dp(20), dp(low ? 16 : 14), dp(20), dp(low ? 56 : 8));
+        f.addView(x, new FrameLayout.LayoutParams(-2, -2, g));
         return x;
     }
 
@@ -419,7 +434,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         load();
         em = EM[new Random().nextInt(EM.length)];
         shown = -2;
-        split(new String[0], new float[0]);
+        t.setAutoSizeTextTypeUniformWithConfiguration(6, Math.max(8, num(0)), 2, TypedValue.COMPLEX_UNIT_SP);
         if (p.getBoolean("aw", true))
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else
@@ -505,46 +520,68 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         return s;
     }
 
-    // Normally the dhikr text and the number get half of the screen each. If a text would not
-    // fit in its share at a comfortable size (28sp) the dhikr area gets up to 70% of the
-    // screen, and the number, being just a number, shrinks a little along with its room.
-    void split(String[] tx, float[] w) {
+    // Standard sizes: a line is as big as fits its share of the dhikr area, but at most 34sp
+    // (14sp for small print, i.e. shares under 20%), times the scale the user pinched for this
+    // slide and view. If a pinched size does not fit, the dhikr area grows at the cost of the
+    // counter container (20% of the screen, down to 10%); sizes that still do not fit shrink.
+    void lines(String[] tx, float[] w, boolean[] a, float z) {
+        alt = a;
+        dl.removeAllViews();
+        boolean dk = pr != null;
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        float f = .5f, sum = 0, area = 0;
+        float H = dm.heightPixels, sum = 0, need = 0;
+        int W = dm.widthPixels - dp(48), top = dp(44), bz = dp(124), pb = dp(8), n = tx.length;
         for (float x : w) sum += x;
+        float a0 = H - top - bz - pb - H * .2f, amax = H - top - bz - pb - H * .1f;
+        bs = new float[n];
+        float[] sz = new float[n];
         TextPaint tp = new TextPaint();
-        tp.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 28, dm));
-        for (int i = 0; i < tx.length; i++) {
+        for (int i = 0; i < n; i++) {
             if (tx[i].isEmpty()) continue;
-            int h = StaticLayout.Builder.obtain(tx[i], 0, tx[i].length(), tp, dm.widthPixels - dp(48))
-                    .build().getHeight();
-            area = Math.max(area, h * sum / w[i]);
+            bs[i] = fit(tx[i], W, a0 * w[i] / sum, (w[i] / sum < .2f ? 14 : 34) * spx);
+            sz[i] = Math.max(8 * spx, Math.min(140 * spx, bs[i] * z));
+            tp.setTextSize(sz[i]);
+            need = Math.max(need, height(tx[i], tp, W) * sum / w[i] / .97f);
         }
-        if (area > 0) f = Math.min(.7f, Math.max(.5f, (area + dp(104)) / dm.heightPixels));
-        ((LinearLayout.LayoutParams) dl.getLayoutParams()).weight = f;
-        ((LinearLayout.LayoutParams) bot.getLayoutParams()).weight = 1 - f;
-        t.setAutoSizeTextTypeUniformWithConfiguration(6,
-                Math.max(8, (int) (num(0) * (1 - f) * 2)), 2, TypedValue.COMPLEX_UNIT_SP);
+        float area = Math.min(amax, Math.max(a0, need));
+        for (int i = 0; i < n; i++) {
+            if (need > amax && !tx[i].isEmpty()) sz[i] = Math.min(sz[i], fit(tx[i], W, amax * w[i] / sum, sz[i]));
+            TextView x = new TextView(this);
+            x.setGravity(Gravity.CENTER);
+            x.setTextColor(0xFFEEEEEE);
+            x.setTextSize(TypedValue.COMPLEX_UNIT_PX, Math.max(1, sz[i]));
+            x.setText(tx[i]);
+            dl.addView(x, new LinearLayout.LayoutParams(-1, 0, w[i]));
+        }
+        lay.setPadding(0, 0, 0, dk ? bz : 0);
+        LinearLayout.LayoutParams bp = (LinearLayout.LayoutParams) bot.getLayoutParams();
+        bp.height = dk ? (int) (H - top - bz - pb - area) : 0;
+        bp.weight = dk ? 0 : 1;
+        bot.setLayoutParams(bp);
         FrameLayout.LayoutParams ip = (FrameLayout.LayoutParams) ind.getLayoutParams();
-        ip.topMargin = dp(96);
-        ip.height = Math.max(0, (int) (f * dm.heightPixels) - dp(104));
+        ip.topMargin = top;
+        ip.height = (int) area;
         ind.setLayoutParams(ip);
         lay.requestLayout();
     }
 
-    // one auto-fitting text per line, each in its share of the dhikr area
-    void lines(String[] tx, float[] w, boolean[] a) {
-        alt = a;
-        dl.removeAllViews();
-        for (int i = 0; i < tx.length; i++) {
-            TextView x = new TextView(this);
-            x.setGravity(Gravity.CENTER);
-            x.setTextColor(0xFFEEEEEE);
-            x.setAutoSizeTextTypeUniformWithConfiguration(10, 80, 2, TypedValue.COMPLEX_UNIT_SP);
-            x.setText(tx[i]);
-            dl.addView(x, new LinearLayout.LayoutParams(-1, 0, w[i]));
+    // largest size (px, at most max) at which s, wrapped to w px, stays within h px (3% spare)
+    float fit(String s, int w, float h, float max) {
+        TextPaint tp = new TextPaint();
+        float lo = 8 * spx, hi = Math.max(lo, max);
+        tp.setTextSize(hi);
+        if (height(s, tp, w) <= h * .97f) return hi;
+        for (int k = 0; k < 8; k++) {
+            float mid = (lo + hi) / 2;
+            tp.setTextSize(mid);
+            if (height(s, tp, w) <= h * .97f) lo = mid;
+            else hi = mid;
         }
-        split(tx, w);
+        return lo;
+    }
+
+    int height(String s, TextPaint tp, int w) {
+        return StaticLayout.Builder.obtain(s, 0, s.length(), tp, w).build().getHeight();
     }
 
     void draw() {
@@ -554,6 +591,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         String[] tx = new String[0];
         boolean[] ta = new boolean[0];
         int vn = 1, ve = 0;       // views of this slide / the current one
+        float zz = 1;             // text scale the user pinched for this slide and view
         float[] tw = new float[0];
         if (pr == null) {
             cnt = n;
@@ -583,14 +621,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             ta = pr.v[s][ev].a;
             vn = nv;
             ve = ev;
+            zz = p.getFloat("fz:" + pf + ":" + s + ":" + ev, 1f);
             prog = "slide " + (s + 1) + " of " + pr.c.length;
         }
         if (key != shown) { // only rebuild and re-fit the text when the slide or view changes
             shown = key;
-            lines(tx, tw, ta);
+            lines(tx, tw, ta, zz);
         }
         pg.setText(prog);
-        pg.setVisibility(pr == null ? View.GONE : View.VISIBLE);
         dl.setVisibility(pr == null ? View.GONE : View.VISIBLE);
         int co = cl[ci % cl.length];
         t.setText(big);
@@ -600,6 +638,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         for (View x : ui) x.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);
         if (!dnOn) dt.setVisibility(View.INVISIBLE);
         if (vn < 2) ind.setVisibility(View.INVISIBLE);
+        if (pr == null) pg.setVisibility(View.INVISIBLE);
         ind.n = vn;
         ind.cur = ve;
         ind.col = co;
@@ -629,6 +668,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // up / down = next / previous view. A recognised swipe never counts as a tap or a hold.
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
         if (pr != null) {
+            sd.onTouchEvent(e);
+            if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN && !sw) {
+                sw = true; // a second finger is a pinch: no tap, hold or swipe
+                e.setAction(MotionEvent.ACTION_CANCEL);
+                return super.dispatchTouchEvent(e);
+            }
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     tx = e.getX();
@@ -753,9 +798,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         for (int i = 0; i < k; i++)
             it[i] = (i == cur ? "\u25B6 " : "    ") + (i + 1) + ". " + pr.ti[i] + (pr.c[i] > 1 ? "  x" + pr.c[i] : "");
         TextView h = new TextView(this);
-        h.setText(pf + "  \u25BE");
+        h.setText(pf);
         h.setTextSize(18);
-        h.setTextColor(0xFF00E676);
+        h.setTextColor(0xFFFFFFFF);
         h.setPadding(dp(24), dp(20), dp(24), dp(8));
         final AlertDialog d = new AlertDialog.Builder(this).setCustomTitle(h).setItems(it, (dg, i) -> {
             land();
@@ -764,33 +809,57 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             z(vt);
             draw();
         }).create();
-        h.setOnClickListener(x -> {
-            d.dismiss();
-            profiles();
-        });
         d.show();
         d.getListView().setSelection(Math.max(0, cur - 2));
     }
 
-    // quick profile switch (Off = normal counter); progress of the old profile is kept
-    void profiles() {
-        final String[] nm = new TreeSet<>(getSharedPreferences("d", 0).getAll().keySet()).toArray(new String[0]);
-        String[] it = new String[nm.length + 1];
-        it[0] = (pf.isEmpty() ? "\u2713 " : "    ") + "Off - normal counter";
-        for (int i = 0; i < nm.length; i++) it[i + 1] = (nm[i].equals(pf) ? "\u2713 " : "    ") + nm[i];
-        new AlertDialog.Builder(this).setTitle("Dhikr profile").setItems(it, (dg, i) -> {
-            land();
-            if (pr != null) p.edit().putInt("g:" + pf, gp).apply();
-            p.edit().putString("pf", i == 0 ? "" : nm[i - 1]).apply();
-            load();
-            shown = -2;
-            draw();
-        }).show();
+    // top-left menu: settings and the profile screen
+    void menu(View anchor) {
+        PopupMenu m = new PopupMenu(this, anchor);
+        m.getMenu().add(0, 1, 0, "Settings");
+        m.getMenu().add(0, 2, 1, "Profiles");
+        m.setOnMenuItemClickListener(i -> {
+            startActivity(new Intent(this, i.getItemId() == 1 ? S.class : P.class));
+            return true;
+        });
+        m.show();
+    }
+
+    // Pinch (dhikr panel only): resizes the text of the current slide and view; the scale is
+    // kept for good and only forgotten by "reset to defaults" in the settings.
+    String zk() {
+        int s = slide();
+        return "fz:" + pf + ":" + s + ":" + Math.min(vi, pr.v[s].length - 1);
+    }
+
+    @Override public boolean onScaleBegin(ScaleGestureDetector d) {
+        if (pr == null || cv || slide() >= pr.c.length) return false;
+        zs = p.getFloat(zk(), 1f);
+        return true;
+    }
+
+    @Override public boolean onScale(ScaleGestureDetector d) {
+        zs = Math.max(.4f, Math.min(2.5f, zs * d.getScaleFactor()));
+        for (int i = 0; i < dl.getChildCount() && i < bs.length; i++)
+            if (bs[i] > 0) ((TextView) dl.getChildAt(i)).setTextSize(TypedValue.COMPLEX_UNIT_PX, bs[i] * zs);
+        return true;
+    }
+
+    @Override public void onScaleEnd(ScaleGestureDetector d) {
+        if (pr == null || slide() >= pr.c.length) return;
+        p.edit().putFloat(zk(), zs).apply();
+        shown = -2; // lay everything out again with the new scale
+        draw();
     }
 
     @Override public void onClick(View x) {
         if (x == se) {
-            startActivity(new Intent(this, S.class));
+            menu(x);
+            return;
+        }
+        if (x == rs) {
+            Toast.makeText(this, pr != null ? "Hold the reset button to start the profile over"
+                    : "Hold the reset button to set the count back to zero", Toast.LENGTH_SHORT).show();
             return;
         }
         if (x == vw) {
