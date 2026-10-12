@@ -92,7 +92,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     View[] ev;       // their views: menu, reset, -1, view, dhikr text, counter, footer, DND warning, title
     Ed ed;           // the editor overlay
     int vi;          // chosen view of the slides (clamped per slide)
-    long rt;         // time of the first tap on the completed screen (restart needs a second one)
+    long rt;         // time of the last tap on the completed screen
+    int rn, rg;      // taps so far / taps needed (3 to 5, random) to start a finished profile over
+    boolean rb;      // the restart is about to happen
     int shx, shy;    // current pixel-shift offset in px
     Runnable pend;   // slide change waiting for the slide-out animation
     Pd ind;          // view dots at the left edge
@@ -767,7 +769,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             cnt = cn[s];
             lap = pr.c[s];
             ci = s;
-            big = lap > 1 ? cnt + "/" + lap : (cnt > 0 ? "\u25CF" : "\u25CB"); // a ring (filled once done) for a slide counted once
+            big = lap > 1 ? cnt + "/" + lap : cnt > 1 ? "\u25CF\u00D7" + cnt : cnt > 0 ? "\u25CF" : "\u25CB"; // a slide counted once: ring, filled when done
             key = s * 64 + ev;
             tx = pr.v[s][ev].t;
             tw = pr.v[s][ev].w;
@@ -828,7 +830,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     try {
                         String[] a = sv.split(",");
                         for (int i = 0; i < k && i < a.length; i++)
-                            cn[i] = Math.max(0, Math.min(pr.c[i], Integer.parseInt(a[i])));
+                            cn[i] = Math.max(0, Math.min(1000000, Integer.parseInt(a[i])));
                     } catch (Exception e) {
                         Arrays.fill(cn, 0);
                     }
@@ -898,6 +900,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // slide changes keep the counts of every slide
     void apply(int t) {
         int s = slide(), k = pr.c.length;
+        rt = 0;
         if (t == 1) {                       // previous slide
             cur = Math.max(0, s - 1);
             cf.t0 = 0;
@@ -1049,32 +1052,20 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // Dhikr: a finished slide buzzes like a lap (unless its count is 1), the last tap gives
     // the "count reached" buzz and the completed screen, where a double tap starts over.
     void inc() {
-        if (edit) return;
+        if (edit || rb) return;
         if (pr != null) {
             int k = pr.c.length;
-            if (cur >= k) { // completed: the first tap asks, a second one within 4 s starts over
-                long now = SystemClock.uptimeMillis();
-                if (rt != 0 && now - rt < 4000) {
-                    rt = 0;
-                    cur = 0;
-                    Arrays.fill(cn, 0);
-                    cf.t0 = 0;
-                    z(vr);
-                    draw();
-                } else {
-                    rt = now;
-                    z(vt);
-                    Toast.makeText(this, "Tap again to start over", Toast.LENGTH_SHORT).show();
-                }
+            if (cur >= k) { // completed: 3 to 5 taps start over
+                again();
                 return;
             }
             rt = 0;
-            boolean full = cn[cur] >= pr.c[cur]; // a finished slide visited again: a tap moves on
-            if (!full) cn[cur]++;
-            boolean fin = cn[cur] >= pr.c[cur];
+            int c0 = pr.c[cur];
+            cn[cur]++; // counting past the target is allowed (40/33); the slide moves on once, at the target
+            boolean fin = cn[cur] == c0;
             int nx = fin ? open(cur + 1) : cur;
             boolean done = fin && nx >= k;
-            z(done ? vl : fin && !full && pr.c[cur] > 1 ? vc : vt);
+            z(done ? vl : c0 > 1 && cn[cur] % c0 == 0 ? vc : vt);
             cur = nx;
             if (done) {
                 em = EM[new Random().nextInt(EM.length)];
@@ -1087,8 +1078,46 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         draw();
     }
 
+    // Completed screen: a random 3 to 5 taps (counted as one series, at most 4 s apart) start the
+    // profile over. Every tap buzzes and shakes the emoji; the last, stronger shake runs before the
+    // counts are cleared. Nothing else clears the counts of a finished profile.
+    void again() {
+        long now = SystemClock.uptimeMillis();
+        if (rt == 0 || now - rt > 4000) {
+            rn = 0;
+            rg = 3 + new Random().nextInt(3);
+            Toast.makeText(this, "Keep tapping to start over", Toast.LENGTH_SHORT).show();
+        }
+        rt = now;
+        boolean last = ++rn >= rg;
+        z(last ? vr : vt);
+        shake(last ? 2f : 1f);
+        if (last) {
+            rb = true;
+            f.postDelayed(() -> {
+                rb = false;
+                rt = 0;
+                cur = 0;
+                Arrays.fill(cn, 0);
+                cf.t0 = 0;
+                draw();
+            }, 280);
+        }
+    }
+
+    // a quick random shake of the emoji
+    void shake(float k) {
+        Random r = new Random();
+        float u = dp(1) * k;
+        t.animate().cancel();
+        t.animate().translationX((r.nextFloat() - .5f) * 28 * u).translationY((r.nextFloat() - .5f) * 20 * u)
+                .rotation((r.nextFloat() - .5f) * 24 * k).setDuration(50)
+                .withEndAction(() -> t.animate().translationX(0).translationY(0).rotation(0).setDuration(120));
+    }
+
     void dec() {
         if (edit) return;
+        rt = 0;
         if (pr != null) {
             int k = pr.c.length;
             if (cur >= k) cur = k - 1;                 // from the completed screen back into the last slide
