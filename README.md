@@ -32,7 +32,7 @@ Optional (off by default): turn on Do Not Disturb while the app is open, either 
 
 ## Layout editor
 
-Menu, then **Edit layout**: tap an element (menu, reset, -1, view, dhikr text, counter, footer, Do Not Disturb warning) to select it and show its bounding box. Drag inside to move it, drag an edge or a corner to resize it, or pinch to scale it. Text follows the height of its box. The layout is saved as you go; **Reset layout** in the menu brings back the default one. Back or the `done` button leaves the editor.
+Menu, then **Edit layout**: tap an element (menu, reset, -1, view, dhikr text, slide title, counter, footer, Do Not Disturb warning) to select it and show its bounding box. Drag inside to move it, drag an edge or a corner to resize it, or pinch to scale it. Text follows the height of its box. The layout is saved as you go. The check button (or back) leaves the editor; hold the undo button to reset the layout. **Reset layout** in the settings does the same.
 
 ## Dhikr profiles
 
@@ -40,22 +40,26 @@ Optional (settings, "Dhikr profile"). A profile is a UTF-8 text file, one file p
 
 ```
 ---33
+# Subhanallah
 [70]Arabic text
 [30]Subhanallah
 ---33
-[30]Arabic | [20]Transliteration | [40]Meaning
-[_]always shown, takes what is left
+# Three views
+Arabic | Transliteration | Meaning
+a line without a bar is in every view
 ---1
+# The end
 [10]
 [100]the end
 ```
 
-- `[70]` in front of a line gives it a share of the text area, and the text is fitted into its share. `[_]` (or `[*]`) takes whatever is left of 100, `[10]` alone on a line is an empty spacer, `[]` hides a line. Lines without a prefix get the average share of the numbered ones (equal if none has one). Blank lines are dropped.
+- The text of a view is one block, centred in the dhikr rectangle. `[70]` in front of a line gives it a relative text size (the biggest line gets the standard size, `[70]` and `[30]` make a 70:30 ratio). `[_]` (or `[*]`) takes whatever is left of 100, `[10]` alone on a line is a gap, `[]` hides a line. Lines without a prefix get the average of the numbered ones (equal if none has one). Blank lines are dropped.
+- Hard line breaks are kept while the block still gets a text size close to what it would get with the lines run together (within 15%). Otherwise the lines are joined with the glyph `↵` and the text just wraps.
 - `|` writes alternative views of a line. A slide with `A | B | C` has three views: view 1 shows A, view 2 shows B, view 3 shows C, while lines without `|` stay on screen in every view.
 - The number shows `17/33`, with `slide 2 of 4` under it, and a column of dots on the left edge shows which view of the slide you are on. A finished slide gives the lap buzz (the tap buzz if its count is 1); the last tap gives the "count reached" buzz and a completed screen with confetti.
 - Gestures: swipe **left** to pull in the next slide, **right** to go back to the previous one (the counts of every slide are kept, so you can look at another slide and come back to 5/10; swiping left past the last slide completes the profile), **up** / **down** to switch between the views of a slide.
-- Pinch to resize the text of the current slide and view. The size is saved per slide and view and only forgotten by "reset to defaults" in the settings. The slide title (small print) is never scaled. Text sizes are standard (at most 34sp, 14sp for small print, i.e. lines with under 20% of the area) and shrink to fit.
-- A line `# Title` inside a slide names it in the slide list (hold the dhikr text to open it and jump to a slide; tap the profile name at the top of the list to switch profile). Without a title, the start of the slide's first line is used.
+- Pinch to resize the dhikr text of the current slide and view. The size is saved per slide and view and only forgotten by "reset to defaults" in the settings. Text is as big as fits the rectangle, at most 34sp; the slide title is its own element and is never scaled by pinching (resize it in the layout editor).
+- A line `# Title` inside a slide is the slide title: it is shown in its own element and in the slide list (hold the dhikr text to open it and jump to a slide). Without a title, the start of the slide's first line is used.
 - A slide that is counted once shows a ring instead of `0/1` (filled once it is done). When a slide is finished the next unfinished one shows up.
 - Profiles are `.dhikr` files. Share one to weecounter from any app (for example WhatsApp's share sheet) to import it without opening the app first; pasted text works too if its first line is `# Name`. Tapping a `.dhikr` file in WhatsApp lists weecounter under "Open with" too (WhatsApp calls the file type BIN); files that are not profiles are ignored.
 - On the completed screen, tap once (a toast asks "Tap again to start over") and again within 4 seconds to restart the profile. `-1` goes back and hold-to-reset also starts over. Import, export and delete profiles on the profile screen (hold the red x to delete).

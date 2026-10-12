@@ -48,12 +48,13 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         l.setPadding(m, m, m, m);
         l.addView(tv("Dhikr profiles are text files (UTF-8, any language). A line like ---33 starts a slide "
                 + "that is counted 33 times (0 skips it, 1 shows it once). The lines below it, up to the "
-                + "next --- line, are shown above the number. A line can start with [70] to give it that share "
-                + "of the text area ([_] = what is left, [10] alone = a spacer, [] hides it). Write alternatives "
+                + "next --- line, are shown above the number. A line can start with [70] to give it that relative size "
+                + "of the text ([_] = what is left, [10] alone = a gap, [] hides it). Write alternatives "
                 + "of a line with | (Arabic | transliteration | meaning): swipe up or down to switch. "
-                + "A line # Title names the slide in the slide list (hold the text). Swipe left for the next "
-                + "slide, right to go back. Profiles are .dhikr files: share one to this app from any other app "
-                + "to import it.", 0xFF888888));
+                + "A line # Title names the slide (own element on screen, and in the slide list: hold the text). "
+                + "The lines of a view are one block of text: line breaks are kept when there is room and "
+                + "shown as an arrow glyph otherwise. Swipe left for the next slide, right to go back. "
+                + "Profiles are .dhikr files: share one to this app from any other app to import it.", 0xFF888888));
         TextView im = tv("IMPORT FILE", 0xFF00E676);
         im.setId(4);
         im.setPadding(0, dp(16), 0, dp(8));

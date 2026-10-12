@@ -12,8 +12,9 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
-public class S extends Activity implements View.OnClickListener {
+public class S extends Activity implements View.OnClickListener, View.OnLongClickListener {
     static final String[] DN = {"Off", "Priority only", "Alarms only"};
     static final String[] DX = {
         "Do Not Disturb is left alone.",
@@ -32,7 +33,7 @@ public class S extends Activity implements View.OnClickListener {
     SharedPreferences p;
     EditText[] e = new EditText[M.D.length];
     CheckBox aw, dk, hp;
-    TextView df, dd, dx, vv, vz, dr;
+    TextView df, dd, dx, vv, vz, dr, rl;
     NotificationManager nm;
     int dm, vm;
 
@@ -85,6 +86,11 @@ public class S extends Activity implements View.OnClickListener {
         df.setOnClickListener(this);
         l.addView(df);
         l.addView(tv("Also forgets the text sizes you set by pinching on dhikr slides.", 0xFF888888, 0));
+        rl = tv("RESET LAYOUT", 0xFFFF5252, m);
+        rl.setOnClickListener(this);
+        rl.setOnLongClickListener(this);
+        l.addView(rl);
+        l.addView(tv("Hold to put the menu, buttons, dhikr text, title, counter and footer back at their default places.", 0xFF888888, 0));
 
         ScrollView s = new ScrollView(this);
         s.setBackgroundColor(0xFF000000);
@@ -164,6 +170,8 @@ public class S extends Activity implements View.OnClickListener {
             dnd();
         } else if (x == dr) {
             startActivity(new Intent(this, P.class));
+        } else if (x == rl) {
+            Toast.makeText(this, "Hold to reset the layout", Toast.LENGTH_SHORT).show();
         } else if (x == vv) {
             vm = (vm + 1) % VN.length;
             vol();
@@ -171,6 +179,15 @@ public class S extends Activity implements View.OnClickListener {
             fill(true);
             clearZ();
         }
+    }
+
+    @Override public boolean onLongClick(View x) {
+        if (x != rl) return false;
+        SharedPreferences.Editor e = p.edit();
+        for (int i = 0; i < 9; i++) e.remove("el" + i);
+        e.apply();
+        Toast.makeText(this, "Layout reset", Toast.LENGTH_SHORT).show();
+        return true;
     }
 
     @Override protected void onPause() {

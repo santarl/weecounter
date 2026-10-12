@@ -18,6 +18,9 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.text.StaticLayout;
 import android.text.TextPaint;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.RelativeSizeSpan;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -25,7 +28,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
-import android.view.ViewPropertyAnimator;
+import android.view.ViewConfiguration;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -68,7 +71,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     SharedPreferences p;
     FrameLayout f;
     FrameLayout lay;
-    LinearLayout bot, dl;
+    LinearLayout bot;
+    TextView dl, ttl; // the dhikr text block and the slide title
     V c;
     Cf cf;
     TextView t, pg, dt, se, rs, dn, vw;
@@ -84,20 +88,18 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     int[] cn = new int[0]; // dhikr: count done in every slide (kept when you move between slides)
     int cur;         // dhikr: current slide (== slide count: completed)
     boolean edit;    // layout editor on
-    RectF[] er = new RectF[8]; // rectangles (px) of the editable elements, see def()
-    View[] ev;       // their views: menu, reset, -1, view, dhikr text, counter, footer, DND warning
+    RectF[] er = new RectF[9]; // rectangles (px) of the editable elements, see def()
+    View[] ev;       // their views: menu, reset, -1, view, dhikr text, counter, footer, DND warning, title
     Ed ed;           // the editor overlay
-    boolean[] small = new boolean[0]; // which shown dhikr lines are small print (title)
     int vi;          // chosen view of the slides (clamped per slide)
     long rt;         // time of the first tap on the completed screen (restart needs a second one)
     int shx, shy;    // current pixel-shift offset in px
     Runnable pend;   // slide change waiting for the slide-out animation
-    boolean[] alt = new boolean[0]; // which of the shown dhikr lines change between views
     Pd ind;          // view dots at the left edge
     ScaleGestureDetector sd; // pinch to resize the dhikr text of a slide / view
     float zs;        // text scale while pinching
     float spx;       // px per sp
-    float[] bs = new float[0]; // standard text size (px, before scaling) of the shown lines
+    float bs;        // standard size (px, before scaling) of the shown dhikr text block
     float tx, ty;    // where the current touch started
     boolean sw;      // a swipe was recognised, the rest of the touch is swallowed
     int shown = -2;  // which dhikr text is on screen (-1 none, slide index, slide count = completed)
@@ -109,7 +111,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     static class Vw {
         String[] t;
         float[] w;
-        boolean[] a; // a[i]: line i has alternatives, i.e. it changes between the views
     }
 
     // a dhikr profile: slides with a repeat count and one or more views. c = counts,
@@ -234,18 +235,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         for (int v = 0; v < nv; v++) {
             ArrayList<String> t = new ArrayList<>();
             ArrayList<Integer> w = new ArrayList<>();
-            ArrayList<Boolean> al = new ArrayList<>();
             for (int i = 0; i < tx.size(); i++) {
                 int j = tx.get(i).length == 1 ? 0 : v;
                 if (j < tx.get(i).length) {
                     t.add(tx.get(i)[j]);
                     w.add(wt.get(i)[j]);
-                    al.add(tx.get(i).length > 1);
                 }
             }
             out[v] = shares(t, w);
-            out[v].a = new boolean[al.size()];
-            for (int i = 0; i < al.size(); i++) out[v].a[i] = al.get(i);
         }
         return out;
     }
@@ -304,8 +301,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         sd = new ScaleGestureDetector(this, this);
 
         lay = new FrameLayout(this);
-        dl = new LinearLayout(this);
-        dl.setOrientation(LinearLayout.VERTICAL);
+        dl = new TextView(this);          // the whole text of a view is one block
+        dl.setGravity(Gravity.CENTER);
+        dl.setTextColor(0xFFEEEEEE);
         dl.setPadding(dp(8), dp(8), dp(8), dp(8));
         dl.setOnClickListener(this);     // a tap still counts, hold opens the slide list
         dl.setOnLongClickListener(this);
@@ -342,8 +340,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         dt.setTextColor(0xFFFFB74D);
         f.addView(dt, new FrameLayout.LayoutParams(-2, -2));
 
-        ev = new View[]{se, rs, dn, vw, dl, bot, pg, dt};
-        ui = new View[]{lay, dt, se, rs, dn, vw, ind, pg};
+        ttl = new TextView(this);         // slide title: an element of its own
+        ttl.setTextColor(0xFF999999);
+        f.addView(ttl, new FrameLayout.LayoutParams(-2, -2));
+
+        ev = new View[]{se, rs, dn, vw, dl, bot, pg, dt, ttl};
+        ui = new View[]{lay, dt, se, rs, dn, vw, ind, pg, ttl};
 
         ed = new Ed(this);
         ed.setVisibility(View.GONE);
@@ -535,7 +537,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     // default rectangle of element i: 0 menu, 1 reset, 2 -1, 3 view, 4 dhikr text, 5 counter,
-    // 6 footer, 7 Do Not Disturb warning. Top to bottom: top bar, dhikr text with the title
+    // 6 footer, 7 Do Not Disturb warning, 8 slide title. Top to bottom: top bar, dhikr text with the title
     // line, counter (20% of the screen), warning, bottom buttons, footer.
     RectF def(int i) {
         DisplayMetrics dm = getResources().getDisplayMetrics();
@@ -545,10 +547,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             case 1: return new RectF(W - tw(1), 0, W, dp(41));
             case 2: return new RectF(0, H - dp(86), tw(2), H - dp(45));
             case 3: return new RectF(W - tw(3), H - dp(86), W, H - dp(45));
-            case 4: return new RectF(0, dp(44), W, c0);
+            case 4: return new RectF(0, dp(44), W, c0 - dp(36));
             case 5: return new RectF(0, c0, W, H - dp(124));
             case 6: return new RectF(W / 2 - dp(100), H - dp(36), W / 2 + dp(100), H - dp(8));
-            default: return new RectF(0, H - dp(124), W, H - dp(88));
+            case 7: return new RectF(0, H - dp(124), W, H - dp(88));
+            default: return new RectF(0, c0 - dp(36), W, c0);
         }
     }
 
@@ -582,7 +585,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         if (i < 4 || i > 5) {
             TextView tv = (TextView) x;
             tv.setGravity(Gravity.CENTER);
-            tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, (i < 4 ? 16 : 12) * spx * r.height() / def(i).height());
+            float sz = (i < 4 ? 16 : i == 8 ? 14 : 12) * spx * r.height() / def(i).height();
+            if (i == 8) // the title shrinks to fit its box and grows with the box
+                tv.setAutoSizeTextTypeUniformWithConfiguration((int) (6 * spx),
+                        (int) Math.max(6 * spx + 1, sz), 1, TypedValue.COMPLEX_UNIT_PX);
+            else
+                tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, sz);
         }
         x.setLayoutParams(lp);
         if (i == 4) { // the view dots follow the dhikr text
@@ -664,38 +672,44 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         else super.onBackPressed();
     }
 
-    // Standard sizes: a line is as big as fits its share of the dhikr rectangle, but at most 34sp
-    // (14sp for small print, i.e. shares under 20%, which is never scaled), times the scale the
-    // user pinched for this slide and view, as far as it still fits.
-    void lines(String[] tx, float[] w, boolean[] a, float z) {
-        alt = a;
-        dl.removeAllViews();
+    // The dhikr text of a view is ONE block with a relative size per line ([n] prefixes). Hard
+    // line breaks are kept while the block still gets a size within 15% of the one it gets with
+    // the lines run together; otherwise the lines are joined with the glyph \u21B5 and wrap freely.
+    // The size is the largest that fits the rectangle, at most 34sp, times the scale the user
+    // pinched for this slide and view (as far as it fits).
+    void lines(String[] tx, float[] w, float z) {
         RectF r = er[4];
-        int W = (int) r.width() - dp(16), n = tx.length;
-        float area = r.height() - dp(16), sum = 0;
-        for (float x : w) sum += x;
-        bs = new float[n];
-        small = new boolean[n];
-        for (int i = 0; i < n; i++) {
-            small[i] = w[i] / sum < .2f;
-            float sz = 8 * spx;
+        int W = (int) r.width() - dp(16), last = -1;
+        float area = r.height() - dp(16), cap = 34 * spx, wmax = 1;
+        for (float x : w) wmax = Math.max(wmax, x);
+        for (int i = 0; i < tx.length; i++) if (!tx[i].isEmpty()) last = i;
+        SpannableStringBuilder brk = new SpannableStringBuilder(), flo = new SpannableStringBuilder();
+        for (int i = 0; i < tx.length; i++) {
+            if (i > 0) brk.append('\n');
+            int a = brk.length(), b = flo.length();
+            brk.append(tx[i].isEmpty() ? " " : tx[i]);
             if (!tx[i].isEmpty()) {
-                float slot = area * w[i] / sum;
-                bs[i] = fit(tx[i], W, slot, (small[i] ? 14 : 34) * spx);
-                sz = small[i] ? bs[i] : fit(tx[i], W, slot, bs[i] * z);
+                flo.append(tx[i]);
+                if (i < last) flo.append(" \u21B5 ");
             }
-            TextView x = new TextView(this);
-            x.setGravity(Gravity.CENTER);
-            x.setTextColor(0xFFEEEEEE);
-            x.setTextSize(TypedValue.COMPLEX_UNIT_PX, sz);
-            x.setText(tx[i]);
-            dl.addView(x, new LinearLayout.LayoutParams(-1, 0, w[i]));
+            if (w[i] < wmax) {
+                RelativeSizeSpan sp = new RelativeSizeSpan(w[i] / wmax);
+                brk.setSpan(sp, a, brk.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                if (flo.length() > b)
+                    flo.setSpan(new RelativeSizeSpan(w[i] / wmax), b, flo.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
         }
+        float sb = fit(brk, W, area, cap), sf = fit(flo, W, area, cap);
+        boolean keep = tx.length < 2 || sb >= sf * .85f;
+        CharSequence use = keep ? brk : flo;
+        bs = keep ? sb : sf;
+        dl.setText(use);
+        dl.setTextSize(TypedValue.COMPLEX_UNIT_PX, fit(use, W, area, bs * z));
         lay.requestLayout();
     }
 
     // largest size (px, at most max) at which s, wrapped to w px, stays within h px (3% spare)
-    float fit(String s, int w, float h, float max) {
+    float fit(CharSequence s, int w, float h, float max) {
         TextPaint tp = new TextPaint();
         float lo = 8 * spx, hi = Math.max(lo, max);
         tp.setTextSize(hi);
@@ -709,16 +723,15 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         return lo;
     }
 
-    int height(String s, TextPaint tp, int w) {
+    int height(CharSequence s, TextPaint tp, int w) {
         return StaticLayout.Builder.obtain(s, 0, s.length(), tp, w).build().getHeight();
     }
 
     void draw() {
         int cnt, lap, ci;         // count shown / lap length / colour index
-        String big, prog = "";    // the big text and the slide progress line
+        String big, prog = "", title = ""; // the big text, the slide progress line and the slide title
         int key = -1;             // which dhikr text is shown: slide * 64 + view
         String[] tx = new String[0];
-        boolean[] ta = new boolean[0];
         int vn = 1, ve = 0;       // views of this slide / the current one
         float zz = 1;             // text scale the user pinched for this slide and view
         float[] tw = new float[0];
@@ -729,9 +742,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             ci = 0;
             big = "12/33";
             key = -3;
-            tx = new String[]{"Dhikr text", "Slide title"};
-            tw = new float[]{90, 10};
-            ta = new boolean[2];
+            tx = new String[]{"Dhikr text"};
+            tw = new float[]{1};
+            title = "Slide title";
             prog = "slide 2 of 4";
         } else if (pr == null) {
             cnt = n;
@@ -745,9 +758,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             ci = k - 1;
             big = em;
             key = k * 64;
-            tx = new String[]{pf + "\ncompleted"};
+            tx = new String[]{"completed"};
             tw = new float[]{1};
-            ta = new boolean[1];
+            title = pf;
             prog = "all " + k + " slides done";
         } else {
             int s = cur, nv = pr.v[s].length, ev = Math.min(vi, nv - 1);
@@ -758,7 +771,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             key = s * 64 + ev;
             tx = pr.v[s][ev].t;
             tw = pr.v[s][ev].w;
-            ta = pr.v[s][ev].a;
+            title = pr.ti[s];
             vn = nv;
             ve = ev;
             zz = p.getFloat("fz:" + pf + ":" + s + ":" + ev, 1f);
@@ -767,10 +780,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         if (key != shown) { // only rebuild and re-fit the text when the slide or view changes
             shown = key;
             place();
-            lines(tx, tw, ta, zz);
+            lines(tx, tw, zz);
         }
         boolean dk = pr != null || demo;
         pg.setText(prog);
+        ttl.setText(title);
         dl.setVisibility(dk ? View.VISIBLE : View.GONE);
         int co = cl[ci % cl.length];
         t.setText(big);
@@ -780,7 +794,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         for (View x : ui) x.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);
         if (!dnOn && !edit) dt.setVisibility(View.INVISIBLE);
         if (vn < 2) ind.setVisibility(View.INVISIBLE);
-        if (!dk) pg.setVisibility(View.INVISIBLE);
+        if (!dk) {
+            pg.setVisibility(View.INVISIBLE);
+            ttl.setVisibility(View.INVISIBLE);
+        }
         ind.n = vn;
         ind.cur = ve;
         ind.col = co;
@@ -915,45 +932,30 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // finishes a running slide animation right away, including its pending change
     void land() {
         lay.animate().cancel();
-        for (int i = 0; i < dl.getChildCount(); i++) dl.getChildAt(i).animate().cancel();
+        dl.animate().cancel();
         Runnable r = pend;
         pend = null;
         if (r != null) r.run();
         lay.setAlpha(1);
         lay.setTranslationX(shx);
         lay.setTranslationY(shy);
-        for (int i = 0; i < dl.getChildCount(); i++) {
-            dl.getChildAt(i).setTranslationY(0);
-            dl.getChildAt(i).setAlpha(1);
-        }
+        dl.setTranslationY(0);
+        dl.setAlpha(1);
     }
 
-    // Vertical swipe: only the lines that change between the views move; the persistent lines
-    // (slide title...), the number and the footer stay where they are.
+    // Vertical swipe: only the dhikr text block moves; the title, the number and the footer
+    // stay where they are.
     void flipV(float fy, Runnable change) {
         final float h = dl.getHeight() * .3f * fy;
         pend = change;
-        boolean first = true;
-        for (int i = 0; i < dl.getChildCount() && i < alt.length; i++) {
-            if (!alt[i]) continue;
-            ViewPropertyAnimator a = dl.getChildAt(i).animate().translationY(h).alpha(0).setDuration(100);
-            if (first) {
-                first = false;
-                a.withEndAction(() -> {
-                    Runnable r = pend;
-                    pend = null;
-                    if (r != null) r.run();
-                    for (int j = 0; j < dl.getChildCount() && j < alt.length; j++) {
-                        if (!alt[j]) continue; // the rebuilt changing lines enter from the other side
-                        View x = dl.getChildAt(j);
-                        x.setTranslationY(-h);
-                        x.setAlpha(0);
-                        x.animate().translationY(0).alpha(1).setDuration(140);
-                    }
-                });
-            }
-        }
-        if (first) land(); // nothing to animate
+        dl.animate().translationY(h).alpha(0).setDuration(100).withEndAction(() -> {
+            Runnable r = pend;
+            pend = null;
+            if (r != null) r.run();
+            dl.setTranslationY(-h);
+            dl.setAlpha(0);
+            dl.animate().translationY(0).alpha(1).setDuration(140);
+        });
     }
 
     // hold on the dhikr text: list of the slides to jump to; the title is the profile name,
@@ -987,11 +989,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         m.getMenu().add(0, 1, 0, "Settings");
         m.getMenu().add(0, 2, 1, "Profiles");
         m.getMenu().add(0, 3, 2, "Edit layout");
-        m.getMenu().add(0, 4, 3, "Reset layout");
         m.setOnMenuItemClickListener(i -> {
             int id = i.getItemId();
             if (id == 3) enterEdit();
-            else if (id == 4) resetLayout();
             else startActivity(new Intent(this, id == 1 ? S.class : P.class));
             return true;
         });
@@ -1013,8 +1013,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     @Override public boolean onScale(ScaleGestureDetector d) {
         zs = Math.max(.4f, Math.min(2.5f, zs * d.getScaleFactor()));
-        for (int i = 0; i < dl.getChildCount() && i < bs.length; i++)
-            if (bs[i] > 0 && !small[i]) ((TextView) dl.getChildAt(i)).setTextSize(TypedValue.COMPLEX_UNIT_PX, bs[i] * zs);
+        dl.setTextSize(TypedValue.COMPLEX_UNIT_PX, bs * zs);
         return true;
     }
 
@@ -1202,12 +1201,20 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         final ScaleGestureDetector sd;
         int sel = -1, mode, sides; // mode: 0 idle, 1 move, 2 resize, 3 pinch; sides: 1 left, 2 top, 4 right, 8 bottom
         float lx, ly;
-        boolean moved;
+        boolean moved, undo;
+        final Runnable hold; // the undo button was held: reset the layout
 
         Ed(M m) {
             super(m);
             this.m = m;
             sd = new ScaleGestureDetector(m, this);
+            hold = () -> {
+                undo = false;
+                sel = -1;
+                m.resetLayout();
+                invalidate();
+                Toast.makeText(m, "Layout reset", Toast.LENGTH_SHORT).show();
+            };
         }
 
         // the smallest element under the finger
@@ -1245,8 +1252,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     ly = y;
                     mode = 0;
                     moved = false;
-                    if (y < m.dp(48) && Math.abs(x - getWidth() / 2f) < m.dp(44)) {
+                    float cx = getWidth() / 2f, cy = m.dp(26), rad = m.dp(24);
+                    if (Math.hypot(x - (cx + m.dp(30)), y - cy) < rad) { // check: leave the editor
                         m.exitEdit();
+                        return true;
+                    }
+                    if (Math.hypot(x - (cx - m.dp(30)), y - cy) < rad) { // undo: reset on hold
+                        undo = true;
+                        postDelayed(hold, ViewConfiguration.getLongPressTimeout());
                         return true;
                     }
                     if (sel >= 0) {
@@ -1261,7 +1274,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     invalidate();
                     return true;
                 case MotionEvent.ACTION_MOVE: {
-                    if (e.getPointerCount() > 1 || sel < 0 || mode == 0 || mode == 3) return true;
+                    if (undo || e.getPointerCount() > 1 || sel < 0 || mode == 0 || mode == 3) return true;
                     float dx = x - lx, dy = y - ly;
                     lx = x;
                     ly = y;
@@ -1282,6 +1295,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 }
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
+                    if (undo) { // released before the hold was over
+                        removeCallbacks(hold);
+                        undo = false;
+                        Toast.makeText(m, "Hold the undo button to reset the layout", Toast.LENGTH_SHORT).show();
+                        return true;
+                    }
                     if (moved && sel >= 0 && mode != 3) m.save(sel);
                     mode = 0;
                     moved = false;
@@ -1333,17 +1352,21 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                         if (a != 1 || b != 1) c.drawCircle(hx[a], hy[b], 5 * u, p);
             }
             p.setStyle(Paint.Style.FILL);
-            float cx = getWidth() / 2f;
-            p.setColor(0xFF00E676);
-            c.drawRoundRect(cx - 40 * u, 6 * u, cx + 40 * u, 42 * u, 18 * u, 18 * u, p);
+            float cx = getWidth() / 2f, cy = 26 * u;
             p.setTextAlign(Paint.Align.CENTER);
+            p.setTextSize(22 * m.spx);
+            p.setColor(0xFF00E676);
+            c.drawCircle(cx + 30 * u, cy, 20 * u, p);
             p.setColor(0xFF000000);
-            p.setTextSize(16 * m.spx);
-            c.drawText("done", cx, 30 * u, p);
+            c.drawText("\u2713", cx + 30 * u, cy + 8 * u, p);
+            p.setColor(0xFF444444);
+            c.drawCircle(cx - 30 * u, cy, 20 * u, p);
+            p.setColor(0xFFFFFFFF);
+            c.drawText("\u21BA", cx - 30 * u, cy + 8 * u, p);
             p.setColor(0xFFAAAAAA);
             p.setTextSize(12 * m.spx);
             c.drawText("tap an element, drag to move, pinch to scale", cx, 62 * u, p);
-            c.drawText("drag an edge or corner to resize", cx, 78 * u, p);
+            c.drawText("drag an edge or corner to resize, hold undo to reset", cx, 78 * u, p);
         }
     }
 
