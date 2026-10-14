@@ -210,6 +210,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         ArrayList<String[]> tx = new ArrayList<>();
         ArrayList<int[]> wt = new ArrayList<>();
         int nv = 1;
+        String ti = ""; // the slide's own title: a text line equal to it is not shown again
+        for (String ln : block.split("\n")) {
+            String q = ln.trim();
+            if (q.startsWith("#") && q.length() > 1) {
+                ti = q.substring(1).trim();
+                break;
+            }
+        }
         for (String ln : block.split("\n")) {
             if (ln.trim().startsWith("#")) continue; // a title line, see title()
             ArrayList<String> ps = new ArrayList<>();
@@ -227,6 +235,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 } else if (l.isEmpty()) {
                     continue;
                 }
+                if (l.equals(ti)) continue;
                 ps.add(l);
                 ws.add(w);
             }
