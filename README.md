@@ -2,7 +2,7 @@
 
 > **AI disclosure:** this app was written with AI-assisted coding (Claude by Anthropic). I direct the design, review the code and test it on my own device.
 
-A tiny tap counter for AMOLED screens. Pure Java, no libraries, no network, tiny APK.
+A tiny tap counter for AMOLED screens. Pure Java, no libraries, tiny APK. The only network use is the update check you start yourself in the settings.
 
 <p>
   <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1.jpg" width="200">
@@ -29,6 +29,10 @@ A tiny tap counter for AMOLED screens. Pure Java, no libraries, no network, tiny
 The display drifts a few pixels every 15 seconds to protect AMOLED screens from burn-in (configurable, can be turned off).
 
 Optional (off by default): turn on Do Not Disturb while the app is open, either "priority only" or "alarms only". The previous setting is restored when you leave. Needs Do Not Disturb access, which you grant in Android's settings.
+
+## Install and updates
+
+Get the APK from the [latest release](https://github.com/santarl/weecounter/releases/latest), or let [Obtainium](https://obtainium.imranr.dev) keep it updated: [add weecounter to Obtainium](https://apps.obtainium.imranr.dev/redirect.html?r=obtainium://add/https://github.com/santarl/weecounter) (or paste `obtainium://add/https://github.com/santarl/weecounter` into the browser of that phone). Settings has an About section with the version, this project's link and a manual "check for update" that opens the APK download of a newer release in the browser. Test builds compare the latest commit on `main` with the one they were built from.
 
 ## Layout editor
 
@@ -71,7 +75,7 @@ a line without a bar is in every view
 ./gradlew assembleRelease
 ```
 
-CI builds are in `.github/workflows` (`test.yml` for a test APK, `release.yml` for tagged releases). Releases are signed with the author's key; the F-Droid build is signed by F-Droid, so the two cannot update each other.
+CI builds are in `.github/workflows` (`test.yml` for a test APK, `release.yml` for tagged releases). Releases are signed with the author's key, so the APKs of different releases update each other.
 
 ## License
 

@@ -1,4 +1,4 @@
-A tiny, fast tap counter built for AMOLED screens. No ads, no tracking, no network access.
+A tiny, fast tap counter built for AMOLED screens. No ads, no tracking. The only network request is the update check you start yourself in the settings.
 
 <b>Counting</b>
 <ul>
@@ -21,4 +21,4 @@ A tiny, fast tap counter built for AMOLED screens. No ads, no tracking, no netwo
 <li>Optional Do Not Disturb while the app is open (priority only or alarms only), restored when you leave</li>
 </ul>
 
-The count is saved between launches. Permissions: vibration, and Do Not Disturb access only if you turn that option on.
+The count is saved between launches. Permissions: vibration, internet (only for that update check), and Do Not Disturb access only if you turn that option on.

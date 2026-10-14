@@ -1,10 +1,13 @@
 package io.rfsj.weecounter;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.CheckBox;
@@ -13,6 +16,10 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 public class S extends Activity implements View.OnClickListener, View.OnLongClickListener {
     static final String[] DN = {"Off", "Priority only", "Alarms only"};
@@ -30,10 +37,12 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         "Volume up adds one, volume down subtracts one.",
         "Volume down adds one, volume up subtracts one."};
 
+    static final String REPO = "santarl/weecounter";
+
     SharedPreferences p;
     EditText[] e = new EditText[M.D.length];
     CheckBox aw, dk, hp;
-    TextView df, dd, dx, vv, vz, dr, rl;
+    TextView df, dd, dx, vv, vz, dr, rl, ver, lnk, chk, res;
     NotificationManager nm;
     int dm, vm;
 
@@ -46,7 +55,26 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         l.setOrientation(LinearLayout.VERTICAL);
         l.setPadding(m, m, m, m);
 
-        dd = tv("", 0xFFFFFFFF, m);
+        // about: version, project link and a manual update check
+        String vn = "?";
+        try {
+            vn = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception ex) {
+            // keep the question mark
+        }
+        ver = tv("weecounter " + vn + (test() ? " (test build)" : ""), 0xFFFFFFFF, 0);
+        ver.setTextSize(18);
+        l.addView(ver);
+        lnk = tv("github.com/" + REPO, 0xFF00E676, m / 4);
+        lnk.setOnClickListener(this);
+        l.addView(lnk);
+        chk = tv("CHECK FOR UPDATE", 0xFF00E676, m);
+        chk.setOnClickListener(this);
+        l.addView(chk);
+        res = tv("", 0xFF888888, 0);
+        l.addView(res);
+
+        dd = tv("", 0xFFFFFFFF, m * 2);
         dd.setOnClickListener(this);
         l.addView(dd);
         dx = tv("", 0xFF888888, m / 4);
@@ -170,6 +198,10 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
             dnd();
         } else if (x == dr) {
             startActivity(new Intent(this, P.class));
+        } else if (x == lnk) {
+            view("https://github.com/" + REPO);
+        } else if (x == chk) {
+            check();
         } else if (x == rl) {
             Toast.makeText(this, "Hold to reset the layout", Toast.LENGTH_SHORT).show();
         } else if (x == vv) {
@@ -179,6 +211,82 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
             fill(true);
             clearZ();
         }
+    }
+
+    boolean test() {
+        return getPackageName().endsWith(".test");
+    }
+
+    void view(String u) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(u)));
+        } catch (Exception ex) {
+            Toast.makeText(this, "No app found to open " + u, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    HttpURLConnection conn(String u, String accept) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(u).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(8000);
+        c.setRequestProperty("User-Agent", "weecounter");
+        if (accept != null) c.setRequestProperty("Accept", accept);
+        return c;
+    }
+
+    // Manual update check (the only network use of the app). Release builds: the latest GitHub
+    // release against our version code (release N has version code N). Test builds: the latest
+    // commit on main against the commit the build was made from (version name "test-<commit>").
+    void check() {
+        res.setText("Checking...");
+        new Thread(() -> {
+            String[] r = {"Could not check, is there a connection?", null, null}; // status, dialog text, link
+            try {
+                PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+                if (test()) {
+                    HttpURLConnection c = conn("https://api.github.com/repos/" + REPO + "/commits/main",
+                            "application/vnd.github.sha");
+                    String sha = new BufferedReader(new InputStreamReader(c.getInputStream())).readLine().trim();
+                    String mine = pi.versionName.startsWith("test-") ? pi.versionName.substring(5) : "";
+                    if (!mine.isEmpty() && sha.startsWith(mine)) {
+                        r[0] = "This test build is made from the latest commit (" + mine + ")";
+                    } else {
+                        r[0] = "main has newer commits: " + sha.substring(0, 7) + (mine.isEmpty() ? "" : " (you have " + mine + ")");
+                        r[1] = r[0] + ". Run the test build workflow and download its artifact from the Actions page.";
+                        r[2] = "https://github.com/" + REPO + "/actions/workflows/test.yml";
+                    }
+                } else {
+                    HttpURLConnection c = conn("https://github.com/" + REPO + "/releases/latest", null);
+                    c.setInstanceFollowRedirects(false);
+                    String loc = c.getHeaderField("Location"); // .../releases/tag/v7
+                    int i = loc == null ? -1 : loc.lastIndexOf("/tag/v");
+                    int latest = i < 0 ? -1 : Integer.parseInt(loc.substring(i + 6).trim());
+                    if (latest < 0) {
+                        r[0] = "No release found";
+                    } else if (latest > pi.versionCode) {
+                        r[0] = "New update available: v" + latest;
+                        r[1] = "Version v" + latest + " is available, you have v" + pi.versionCode
+                                + ". Open the APK download in your browser?";
+                        r[2] = "https://github.com/" + REPO + "/releases/download/v" + latest + "/weecounter-v" + latest + ".apk";
+                    } else {
+                        r[0] = "You are on the latest version (v" + pi.versionCode + ")";
+                    }
+                }
+            } catch (Exception ex) {
+                // keep the default message
+            }
+            runOnUiThread(() -> show(r));
+        }).start();
+    }
+
+    void show(String[] r) {
+        if (isFinishing()) return;
+        res.setText(r[0]);
+        if (r[1] == null) return;
+        final String u = r[2];
+        new AlertDialog.Builder(this).setTitle("Update available").setMessage(r[1])
+                .setPositiveButton(test() ? "Open" : "Download", (d, w) -> view(u))
+                .setNegativeButton("Later", null).show();
     }
 
     @Override public boolean onLongClick(View x) {
