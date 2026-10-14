@@ -121,6 +121,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     static class Pr {
         int[] c, cu;
         String[] ti; // slide titles, for the slide list
+        boolean[] ex; // slide has its own "# Title" line (only those show the title element)
         Vw[][] v;
         int tot;
     }
@@ -136,6 +137,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         ArrayList<Integer> cs = new ArrayList<>();
         ArrayList<Vw[]> vs = new ArrayList<>();
         ArrayList<String> tis = new ArrayList<>();
+        ArrayList<Boolean> exs = new ArrayList<>();
         StringBuilder b = new StringBuilder();
         int cnt = -1;
         boolean open = false;
@@ -147,6 +149,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                         cs.add(cnt);
                         vs.add(views(b.toString()));
                         tis.add(title(b.toString(), cs.size() - 1));
+                        exs.add(Pattern.compile("(?m)^\\s*#\\s*\\S").matcher(b).find());
                     }
                     cnt = Integer.parseInt(l.replaceAll("[^0-9]", ""));
                     if (cnt > 100000) return null;
@@ -168,8 +171,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         r.v = new Vw[k][];
         r.cu = new int[k + 1];
         r.ti = new String[k];
+        r.ex = new boolean[k];
         for (int i = 0; i < k; i++) {
             r.ti[i] = tis.get(i);
+            r.ex[i] = exs.get(i);
             r.c[i] = cs.get(i);
             r.v[i] = vs.get(i);
             r.cu[i + 1] = r.cu[i] + r.c[i];
@@ -773,7 +778,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             key = s * 64 + ev;
             tx = pr.v[s][ev].t;
             tw = pr.v[s][ev].w;
-            title = pr.ti[s];
+            title = pr.ex[s] ? pr.ti[s] : ""; // the fallback title (first text line) is only for the slide list
             vn = nv;
             ve = ev;
             zz = p.getFloat("fz:" + pf + ":" + s + ":" + ev, 1f);
