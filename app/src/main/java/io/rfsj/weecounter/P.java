@@ -51,7 +51,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
                 + "next --- line, are shown above the number. A line can start with [70] to give it that relative size "
                 + "of the text ([_] = what is left, [10] alone = a gap, [] hides it). Write alternatives "
                 + "of a line with | (Arabic | transliteration | meaning): swipe up or down to switch. "
-                + "A line # Title names the slide (own element on screen, and in the slide list: hold the text). "
+                + "A line # Title names the slide (own element on screen, and in the slide list: hold the slide x of y footer). "
                 + "The lines of a view are one block of text: line breaks are kept when there is room and "
                 + "shown as an arrow glyph otherwise. Swipe left for the next slide, right to go back. "
                 + "Profiles are .dhikr files: share one to this app from any other app to import it.", 0xFF888888));

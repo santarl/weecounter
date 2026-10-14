@@ -321,7 +321,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         dl.setGravity(Gravity.CENTER);
         dl.setTextColor(0xFFEEEEEE);
         dl.setPadding(dp(8), dp(8), dp(8), dp(8));
-        dl.setOnClickListener(this);     // a tap still counts, hold opens the slide list
+        dl.setOnClickListener(this);     // a tap still counts, hold toggles the counting view like anywhere else
         dl.setOnLongClickListener(this);
         lay.addView(dl);
         bot = new LinearLayout(this);
@@ -351,6 +351,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         vw.setOnClickListener(this);
         pg = new TextView(this);          // status footer: slide progress
         pg.setTextColor(0xFF888888);
+        pg.setOnClickListener(this);      // a tap still counts, hold opens the slide list
+        pg.setOnLongClickListener(this);
         f.addView(pg, new FrameLayout.LayoutParams(-2, -2));
         dt = new TextView(this);          // Do Not Disturb warning (not clickable)
         dt.setTextColor(0xFFFFB74D);
@@ -975,7 +977,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         });
     }
 
-    // hold on the dhikr text: list of the slides to jump to; the title is the profile name,
+    // hold on the footer (slide x of y): list of the slides to jump to; the title is the profile name,
     // tap it to pick another profile
     void picker() {
         if (pr == null) return;
@@ -1162,7 +1164,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     @Override public boolean onLongClick(View x) {
-        if (x == dl) {
+        if (x == pg) {
             z(vh);
             picker();
             return true;
