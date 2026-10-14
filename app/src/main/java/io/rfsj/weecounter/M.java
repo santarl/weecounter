@@ -48,7 +48,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         {"fs", "96", "Font size (sp)"},
         {"mx", "0", "Count reached at (0 = off)"},
         {"st", "100", "Lap length (count, changes colour)"},
-        {"sz", "24", "Dot / tally size (dp)"},
+        {"sz", "24", "Dot / tally / game size (dp)"},
         {"ps", "6", "Pixel shift against burn-in (dp, 0 = off)"},
         {"cl", "FFFFFF 00E676 40C4FF FFD740 FF5252 E040FB", "Colours (hex, space separated)"},
         {"vt", "15", "Vibration: tap"},
@@ -57,8 +57,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         {"vl", "500 50 500", "Vibration: count reached"},
         {"vc", "50 50 50 50 50", "Vibration: lap"}};
 
-    // counting views: 0 blackout, 1 dots, 2 tally
-    static final String[] NM = {"blackout", "dots", "tally"};
+    // counting views: 0 blackout, 1 dots, 2 tally, 3 game (a self-playing snake)
+    static final String[] NM = {"blackout", "dots", "tally", "game"};
 
     // Do Not Disturb warning above the bottom buttons: 0 = not shown, 1 = priority only, 2 = alarms only
     static final String[] DT = {"", "DND ON - only priority notifications get through",
@@ -1054,7 +1054,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             return;
         }
         if (x == vw) {
-            mode = (mode + 1) % 3;
+            mode = (mode + 1) % 4;
             z(vt);
             draw();
             return;
@@ -1069,6 +1069,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // the "count reached" buzz and the completed screen, where a double tap starts over.
     void inc() {
         if (edit || rb) return;
+        c.tap();
         if (pr != null) {
             int k = pr.c.length;
             if (cur >= k) { // completed: 3 to 5 taps start over
@@ -1202,17 +1203,146 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         // marks that fit on screen (also sets the grid geometry)
         int cap() {
             float m = sz / 2f;
-            pw = mode == 1 ? sz : sz * 2.1f;  // tally: one cell per group of five
-            ph = mode == 1 ? sz : sz * 1.7f;
+            pw = mode != 2 ? sz : sz * 2.1f;  // tally: one cell per group of five
+            ph = mode != 2 ? sz : sz * 1.7f;
             cols = Math.max(0, (int) ((getWidth() - 2 * m) / pw));
             rows = Math.max(0, (int) ((getHeight() - 2 * m) / ph));
-            return cols * rows * (mode == 1 ? 1 : 5);
+            return cols * rows * (mode != 2 ? 1 : 5);
+        }
+
+        // "game" view: a snake plays itself. Every tap drops an apple, it goes for the nearest
+        // one (not always, and not by the shortest way, so it wanders a bit), eats and grows a
+        // block. It only steps where its own tail can still be reached, so it never traps itself.
+        final ArrayList<Integer> ap = new ArrayList<>();
+        final Random rnd = new Random();
+        final Runnable tk = () -> invalidate();
+        final int[] DX = {1, 0, -1, 0}, DY = {0, 1, 0, -1};
+        int[] sn; // cells (y * cols + x), head first
+        int len, dir, gc;
+        long t0;
+
+        void tap() {
+            if (mode != 3 || sn == null || !isShown() || ap.size() > 19) return;
+            for (int i = 0; i < 30; i++) {
+                int a = rnd.nextInt(sn.length);
+                if (!ap.contains(a) && !hit(a)) {
+                    ap.add(a);
+                    return;
+                }
+            }
+        }
+
+        boolean hit(int a) {
+            for (int i = 0; i < len; i++) if (sn[i] == a) return true;
+            return false;
+        }
+
+        int at(int x, int y) {
+            return x < 0 || y < 0 || x >= cols || y >= rows ? -1 : y * cols + x;
+        }
+
+        // free cells reachable from s, plus a big bonus if the tail t is among them
+        int room(boolean[] oc, int s, int t) {
+            boolean[] v = oc.clone();
+            int[] st = new int[v.length];
+            int k = 0, r = s == t ? 1 << 20 : 0;
+            st[k++] = s;
+            v[s] = true;
+            while (k > 0) {
+                int q = st[--k];
+                r++;
+                for (int d = 0; d < 4; d++) {
+                    int c = at(q % cols + DX[d], q / cols + DY[d]);
+                    if (c >= 0 && !v[c]) {
+                        v[c] = true;
+                        st[k++] = c;
+                        if (c == t) r += 1 << 20;
+                    }
+                }
+            }
+            return r;
+        }
+
+        void step() {
+            boolean[] oc = new boolean[sn.length];
+            for (int i = 0; i < len - 1; i++) oc[sn[i]] = true; // the tail moves away
+            int hx = sn[0] % cols, hy = sn[0] / cols, top = -1;
+            int[] nc = new int[4], fr = new int[4];
+            for (int d = 0; d < 4; d++) {
+                nc[d] = at(hx + DX[d], hy + DY[d]);
+                if (nc[d] < 0 || oc[nc[d]]) {
+                    nc[d] = -1;
+                    continue;
+                }
+                fr[d] = room(oc, nc[d], sn[len - 1]);
+                if (top < 0 || fr[d] > fr[top]) top = d;
+            }
+            if (top < 0) { // boxed in (the room check should prevent it): start over
+                sn = null;
+                return;
+            }
+            int a = -1, ad = 1 << 30, pick = -1, bd = 1 << 30;
+            for (int q : ap) {
+                int dd = Math.abs(q % cols - hx) + Math.abs(q / cols - hy);
+                if (dd < ad) {
+                    ad = dd;
+                    a = q;
+                }
+            }
+            boolean aim = a >= 0 && rnd.nextInt(4) > 0, keep = rnd.nextInt(5) > 0;
+            int need = Math.min(fr[top], 1 << 20); // any move that keeps the tail reachable, else the roomiest
+            for (int d = 0; d < 4; d++) {
+                if (nc[d] < 0 || fr[d] < need) continue;
+                int sc = aim ? 2 * (Math.abs(nc[d] % cols - a % cols) + Math.abs(nc[d] / cols - a / cols)) + rnd.nextInt(2)
+                        : d == dir && keep ? 0 : 1 + rnd.nextInt(9);
+                if (sc < bd) {
+                    bd = sc;
+                    pick = d;
+                }
+            }
+            dir = pick;
+            if (ap.remove(Integer.valueOf(nc[pick])) && len < sn.length / 3) len++;
+            System.arraycopy(sn, 0, sn, 1, len - 1);
+            sn[0] = nc[pick];
+        }
+
+        void game(Canvas c, float ox, float oy) {
+            if (cols < 5 || rows < 3) return;
+            if (sn == null || gc != cols || sn.length != cols * rows) {
+                sn = new int[cols * rows];
+                gc = cols;
+                len = 3;
+                dir = 0;
+                ap.clear();
+                for (int i = 0; i < 3; i++) sn[i] = rows / 2 * cols + cols / 2 - i;
+            }
+            long now = System.currentTimeMillis();
+            if (now - t0 >= 90) {
+                t0 = now;
+                step();
+            }
+            if (sn != null) {
+                p.setColor(col);
+                for (int i = 0; i < len + ap.size(); i++) {
+                    int q = i < len ? sn[i] : ap.get(i - len);
+                    if (i == len) p.setColor(0xFFFF5252);
+                    float x = ox + q % cols * sz, y = oy + q / cols * sz;
+                    if (i < len) c.drawRect(x + 1, y + 1, x + sz - 1, y + sz - 1, p);
+                    else c.drawCircle(x + sz / 2f, y + sz / 2f, sz * .4f, p);
+                }
+            }
+            removeCallbacks(tk);
+            postDelayed(tk, 100);
         }
 
         @Override protected void onDraw(Canvas c) {
             int cap = cap();
             if (mode == 0 || cap == 0) return;
             float ox = (getWidth() - cols * pw) / 2f, oy = (getHeight() - rows * ph) / 2f;
+            if (mode == 3) {
+                game(c, ox, oy);
+                return;
+            }
             int q = n % st % (2 * cap);            // position inside the fill / drain cycle
             int lo = q <= cap ? 0 : q - cap;       // marks before lo have been removed
             int hi = Math.min(q, cap);             // marks from hi on are not drawn yet
