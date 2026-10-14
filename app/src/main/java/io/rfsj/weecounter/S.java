@@ -112,8 +112,9 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
 
         df = tv("RESET TO DEFAULTS", 0xFFFF5252, m);
         df.setOnClickListener(this);
+        df.setOnLongClickListener(this);
         l.addView(df);
-        l.addView(tv("Also forgets the text sizes you set by pinching on dhikr slides.", 0xFF888888, 0));
+        l.addView(tv("Hold to restore the defaults. Also forgets the text sizes you set by pinching on dhikr slides.", 0xFF888888, 0));
         rl = tv("RESET LAYOUT", 0xFFFF5252, m);
         rl.setOnClickListener(this);
         rl.setOnLongClickListener(this);
@@ -207,9 +208,8 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         } else if (x == vv) {
             vm = (vm + 1) % VN.length;
             vol();
-        } else {
-            fill(true);
-            clearZ();
+        } else if (x == df) {
+            Toast.makeText(this, "Hold to reset to defaults", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -290,6 +290,12 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     @Override public boolean onLongClick(View x) {
+        if (x == df) {
+            fill(true);
+            clearZ();
+            Toast.makeText(this, "Defaults restored", Toast.LENGTH_SHORT).show();
+            return true;
+        }
         if (x != rl) return false;
         SharedPreferences.Editor e = p.edit();
         for (int i = 0; i < 9; i++) e.remove("el" + i);
