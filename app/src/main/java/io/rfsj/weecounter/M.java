@@ -825,6 +825,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         c.n = cnt;
         c.st = lap;
         c.col = co;
+        c.nx = cl[(ci + 1) % cl.length];
         c.setVisibility(cv && mode > 0 ? View.VISIBLE : View.INVISIBLE);
         c.invalidate();
     }
@@ -1069,7 +1070,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // the "count reached" buzz and the completed screen, where a double tap starts over.
     void inc() {
         if (edit || rb) return;
-        c.tap();
         if (pr != null) {
             int k = pr.c.length;
             if (cur >= k) { // completed: 3 to 5 taps start over
@@ -1213,16 +1213,30 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         // "game" view: a snake plays itself. Every tap drops an apple, it goes for the nearest
         // one (not always, and not by the shortest way, so it wanders a bit), eats and grows a
         // block. It only steps where its own tail can still be reached, so it never traps itself.
+        // Its size follows the count q = n % st: it grows to a third of the board, then each apple
+        // evolves it (two tail blocks go, one block of the next lap colour joins at the head).
+        // Taps made while the panel was up, a new lap or slide, or -1 are caught up on in sync().
         final ArrayList<Integer> ap = new ArrayList<>();
         final Random rnd = new Random();
         final Runnable tk = () -> invalidate();
         final int[] DX = {1, 0, -1, 0}, DY = {0, 1, 0, -1};
         int[] sn; // cells (y * cols + x), head first
-        int len, dir, gc;
+        int len, dir, gc, nb, gr, ev, pq = -1, nx; // nb: head blocks in the next lap colour, gr / ev: growth / evolutions still to apply, pq: the count it is at
         long t0;
 
-        void tap() {
-            if (mode != 3 || sn == null || !isShown() || ap.size() > 19) return;
+        @Override protected void onVisibilityChanged(View v, int vis) {
+            super.onVisibilityChanged(v, vis);
+            pq = -1; // catch up on the count when shown again
+        }
+
+        // one apple eaten: grow, or evolve once it is as long as the board allows
+        void unit() {
+            if (nb + ev == 0 && len + gr < sn.length / 3) gr++;
+            else if (nb + ev < sn.length / 6) ev++;
+        }
+
+        void drop() {
+            if (ap.size() > 19) return;
             for (int i = 0; i < 30; i++) {
                 int a = rnd.nextInt(sn.length);
                 if (!ap.contains(a) && !hit(a)) {
@@ -1270,7 +1284,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             int[] nc = new int[4], fr = new int[4];
             for (int d = 0; d < 4; d++) {
                 nc[d] = at(hx + DX[d], hy + DY[d]);
-                if (nc[d] < 0 || oc[nc[d]]) {
+                if (nc[d] < 0 || oc[nc[d]] || gr > 0 && nc[d] == sn[len - 1]) {
                     nc[d] = -1;
                     continue;
                 }
@@ -1301,9 +1315,17 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 }
             }
             dir = pick;
-            if (ap.remove(Integer.valueOf(nc[pick])) && len < sn.length / 3) len++;
-            System.arraycopy(sn, 0, sn, 1, len - 1);
+            if (ap.remove(Integer.valueOf(nc[pick]))) unit();
+            int nl = len + 1; // the new head, minus what leaves at the tail
+            if (gr > 0) gr--;
+            else if (ev > 0) {
+                ev--;
+                nb++;
+                nl -= 2;
+            } else nl--;
+            System.arraycopy(sn, 0, sn, 1, len);
             sn[0] = nc[pick];
+            len = nl;
         }
 
         void game(Canvas c, float ox, float oy) {
@@ -1313,20 +1335,32 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 gc = cols;
                 len = 3;
                 dir = 0;
+                nb = gr = ev = 0;
+                pq = -1;
                 ap.clear();
                 for (int i = 0; i < 3; i++) sn[i] = rows / 2 * cols + cols / 2 - i;
             }
+            int q = n % st, d = q - pq, big = sn.length / 3, g = big - 3;
+            if (pq < 0 || d < 0 || d > 5) { // back from the panel, a new lap or slide, a jump: become what this count makes
+                nb = Math.max(0, Math.min(q - g, big / 2));
+                int tl = q <= g ? 3 + q : big - nb;
+                ev = 0;
+                len = Math.min(len, tl);
+                gr = tl - len;
+            } else {
+                for (int i = 0; i < d; i++) drop();
+            }
+            pq = q;
             long now = System.currentTimeMillis();
             if (now - t0 >= 90) {
                 t0 = now;
                 step();
             }
             if (sn != null) {
-                p.setColor(col);
                 for (int i = 0; i < len + ap.size(); i++) {
-                    int q = i < len ? sn[i] : ap.get(i - len);
-                    if (i == len) p.setColor(0xFFFF5252);
-                    float x = ox + q % cols * sz, y = oy + q / cols * sz;
+                    int z = i < len ? sn[i] : ap.get(i - len);
+                    p.setColor(i >= len ? 0xFFFF5252 : i < nb ? nx : col);
+                    float x = ox + z % cols * sz, y = oy + z / cols * sz;
                     if (i < len) c.drawRect(x + 1, y + 1, x + sz - 1, y + sz - 1, p);
                     else c.drawCircle(x + sz / 2f, y + sz / 2f, sz * .4f, p);
                 }
