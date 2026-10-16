@@ -41,7 +41,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
 
     SharedPreferences p;
     EditText[] e = new EditText[M.D.length];
-    CheckBox aw, dk, hp;
+    CheckBox aw, dk, hp, wk;
     TextView df, dd, dx, vv, vz, dr, rl, ver, lnk, chk, res;
     NotificationManager nm;
     int dm, vm;
@@ -109,6 +109,8 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         l.addView(aw);
         dk = cb("Start in counting view (not panel)");
         l.addView(dk);
+        wk = cb("Check for new profiles weekly");
+        l.addView(wk);
 
         df = tv("RESET TO DEFAULTS", 0xFFFF5252, m);
         df.setOnClickListener(this);
@@ -152,6 +154,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         aw.setChecked(d || p.getBoolean("aw", true));
         dk.setChecked(!d && p.getBoolean("dk", false));
         hp.setChecked(!d && p.getBoolean("hp", false));
+        wk.setChecked(d || p.getBoolean("wk", true));
         dm = d ? 0 : p.getInt("dn", 0);
         vm = d ? 0 : p.getInt("vk", 0);
         dnd();
@@ -309,7 +312,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         SharedPreferences.Editor x = p.edit();
         for (int i = 0; i < e.length; i++)
             x.putString(M.D[i][0], e[i].getText().toString());
-        x.putBoolean("aw", aw.isChecked()).putBoolean("dk", dk.isChecked()).putBoolean("hp", hp.isChecked())
+        x.putBoolean("aw", aw.isChecked()).putBoolean("dk", dk.isChecked()).putBoolean("hp", hp.isChecked()).putBoolean("wk", wk.isChecked())
                 .putInt("dn", dm).putInt("vk", vm).apply();
     }
 }

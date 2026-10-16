@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET"/> <!-- only for the manual update check in the settings -->
+    <uses-permission android:name="android.permission.INTERNET"/> <!-- the update check in the settings, and the profile browser -->
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY"/>
     <application
@@ -55,6 +55,9 @@
                 <data android:mimeType="application/octet-stream"/>
             </intent-filter>
         </activity>
+        <activity
+            android:name=".B"
+            android:exported="false"/>
         <activity
             android:name=".S"
             android:exported="false"

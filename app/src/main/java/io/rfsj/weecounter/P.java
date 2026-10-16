@@ -33,6 +33,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
     SharedPreferences p, d; // p = settings, d = the profiles (name -> text)
     LinearLayout ls;
     String ex;              // profile being exported
+    TextView br;            // the browse button, shows how many profiles have an update
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -54,7 +55,14 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
                 + "A line # Title names the slide (own element on screen, and in the slide list: hold the slide x of y footer). "
                 + "The lines of a view are one block of text: line breaks are kept when there is room and "
                 + "shown as an arrow glyph otherwise. Swipe left for the next slide, right to go back. "
+                + "Header lines before the first slide: @id, @version (a number), @author and @desc (a description, "
+                + "shown once when the profile is first opened; hold a profile here to see it again). "
                 + "Profiles are .dhikr files: share one to this app from any other app to import it.", 0xFF888888));
+        br = tv("", 0xFF00E676);
+        br.setId(5);
+        br.setPadding(0, dp(16), 0, 0);
+        br.setOnClickListener(this);
+        l.addView(br);
         TextView im = tv("IMPORT FILE", 0xFF00E676);
         im.setId(4);
         im.setPadding(0, dp(16), 0, dp(8));
@@ -84,7 +92,14 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         return x;
     }
 
+    @Override protected void onResume() {
+        super.onResume();
+        fill();
+    }
+
     void fill() {
+        int u = B.updates(p, d);
+        br.setText("BROWSE PROFILES" + (u > 0 ? " (" + u + (u == 1 ? " update)" : " updates)") : ""));
         ls.removeAllViews();
         String cur = p.getString("pf", "");
         row("Off - normal counter", "", cur.isEmpty(), false);
@@ -101,6 +116,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         a.setId(1);
         a.setTag(key);
         a.setOnClickListener(this);
+        if (full) a.setOnLongClickListener(this); // hold: description, author, version
         r.addView(a, new LinearLayout.LayoutParams(0, -2, 1f));
         if (full) {
             TextView e = tv("export", 0xFF888888);
@@ -135,6 +151,9 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
                 startActivityForResult(i, 2);
                 break;
             }
+            case 5:
+                startActivity(new Intent(this, B.class));
+                break;
             case 3:
                 Toast.makeText(this, "Hold to delete", Toast.LENGTH_SHORT).show();
                 break;
@@ -147,10 +166,15 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     @Override public boolean onLongClick(View v) {
-        if (v.getId() != 3) return false;
         String k = (String) v.getTag();
+        if (v.getId() == 1) {
+            String t = k.isEmpty() ? null : d.getString(k, null);
+            if (t != null) M.about(this, k, t);
+            return t != null;
+        }
+        if (v.getId() != 3) return false;
         d.edit().remove(k).apply();
-        SharedPreferences.Editor e = p.edit().remove("g:" + k);
+        SharedPreferences.Editor e = p.edit().remove("g:" + k).remove("in:" + k);
         if (k.equals(p.getString("pf", ""))) e.putString("pf", "");
         e.apply();
         fill();

@@ -133,6 +133,26 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // 1 shows it once); the lines below it, up to the next "---N" line (or a bare "---"),
     // are its text, see views(). Anything before the first "---N" line is ignored.
     // Returns null if no slide is left.
+    // a header line of a profile text, "@key value", before its first slide; repeated lines are
+    // joined with line breaks (@id, @version, @author, @desc)
+    static String hd(String s, String k) {
+        StringBuilder b = new StringBuilder();
+        for (String ln : s.split("\r?\n")) {
+            String l = ln.trim();
+            if (l.matches("-{2,}\\s*[0-9]+")) break;
+            if (l.startsWith("@" + k + " ")) b.append(b.length() > 0 ? "\n" : "").append(l.substring(k.length() + 2).trim());
+        }
+        return b.toString();
+    }
+
+    // description, author and version of a profile
+    static void about(Activity a, String name, String tx) {
+        String au = hd(tx, "author"), v = hd(tx, "version"), ds = hd(tx, "desc");
+        String m = (au.isEmpty() ? "" : "By " + au) + (v.isEmpty() ? "" : (au.isEmpty() ? "" : "  -  ") + "version " + v);
+        new AlertDialog.Builder(a).setTitle(name).setMessage(m + (m.isEmpty() ? "" : "\n\n")
+                + (ds.isEmpty() ? "No description" : ds)).setPositiveButton("OK", null).show();
+    }
+
     static Pr parse(String s) {
         ArrayList<Integer> cs = new ArrayList<>();
         ArrayList<Vw[]> vs = new ArrayList<>();
@@ -448,6 +468,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         vl = fx(9);
         vc = fx(10);
         load();
+        weekly();
         em = EM[new Random().nextInt(EM.length)];
         shown = -2;
         t.setAutoSizeTextTypeUniformWithConfiguration(6, Math.max(8, num(0)), 2, TypedValue.COMPLEX_UNIT_SP);
@@ -831,6 +852,16 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     // (re)loads the active dhikr profile; a missing or broken one falls back to the normal counter
+    // once a week (and not more than every 6 hours after a failure) look for new profiles:
+    // one small request for the manifest, none if the setting is off
+    void weekly() {
+        long now = System.currentTimeMillis();
+        if (!p.getBoolean("wk", true) || now - p.getLong("mt", 0) < 604800000L || now - p.getLong("ma", 0) < 21600000L)
+            return;
+        p.edit().putLong("ma", now).apply();
+        new Thread(() -> B.refresh(p)).start();
+    }
+
     void load() {
         pf = p.getString("pf", "");
         pr = null;
@@ -840,6 +871,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             if (pr == null) {
                 pf = "";
             } else {
+                if (!p.getBoolean("in:" + pf, false) && !hd(tx, "desc").isEmpty()) { // first open: the description
+                    p.edit().putBoolean("in:" + pf, true).apply();
+                    about(this, pf, tx);
+                }
                 int k = pr.c.length;
                 cn = new int[k];
                 String sv = p.getString("cn:" + pf, null);
