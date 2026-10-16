@@ -268,7 +268,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
             ByteArrayOutputStream b = new ByteArrayOutputStream();
             byte[] buf = new byte[4096];
             int k;
-            while ((k = in.read(buf)) > 0 && b.size() < 300000) b.write(buf, 0, k);
+            while ((k = in.read(buf)) > 0) b.write(buf, 0, k);
             in.close();
             return store(name(u), b.toString("UTF-8"));
         } catch (Exception e) {

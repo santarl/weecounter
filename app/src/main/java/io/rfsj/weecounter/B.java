@@ -214,7 +214,7 @@ public class B extends Activity implements View.OnClickListener {
                 JSONObject o = new JSONObject(js);
                 String f = o.getString("f"), id = o.getString("id");
                 if (!f.matches("[\\w./-]+") || f.contains("..")) throw new Exception();
-                String s = read(open(BASE + f).getInputStream(), 300000).replace("\uFEFF", "");
+                String s = read(open(BASE + f).getInputStream(), Integer.MAX_VALUE).replace("\uFEFF", "");
                 if (M.parse(s) == null) throw new Exception();
                 String nm = p.getString("id:" + id, null);
                 if (nm == null) {
