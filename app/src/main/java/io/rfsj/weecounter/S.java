@@ -40,6 +40,8 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
     static final String REPO = "santarl/weecounter";
 
     SharedPreferences p;
+    Th th;          // colours
+    TextView tm;    // the default theme
     EditText[] e = new EditText[M.D.length];
     CheckBox aw, dk, hp, wk;
     TextView df, dd, dx, vv, vz, dr, rl, ver, lnk, chk, res;
@@ -47,7 +49,11 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
     int dm, vm;
 
     @Override protected void onCreate(Bundle b) {
+        SharedPreferences q = getSharedPreferences("p", 0);
+        th = Th.get(this, q, q.getString("pf", "")); // the theme of the profile this screen was opened from
+        setTheme(th.theme());
         super.onCreate(b);
+        th.bars(this);
         p = getSharedPreferences("p", 0);
         nm = getSystemService(NotificationManager.class);
         int m = (int) (16 * getResources().getDisplayMetrics().density);
@@ -62,45 +68,51 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         } catch (Exception ex) {
             // keep the question mark
         }
-        ver = tv("weecounter " + vn + (test() ? " (test build)" : ""), 0xFFFFFFFF, 0);
+        ver = tv("weecounter " + vn + (test() ? " (test build)" : ""), th.fg, 0);
         ver.setTextSize(18);
         l.addView(ver);
-        lnk = tv("github.com/" + REPO, 0xFF00E676, m / 4);
+        lnk = tv("github.com/" + REPO, th.ac, m / 4);
         lnk.setOnClickListener(this);
         l.addView(lnk);
-        chk = tv("CHECK FOR UPDATE", 0xFF00E676, m);
+        chk = tv("CHECK FOR UPDATE", th.ac, m);
         chk.setOnClickListener(this);
         l.addView(chk);
-        res = tv("", 0xFF888888, 0);
+        res = tv("", th.dim, 0);
         l.addView(res);
 
-        dd = tv("", 0xFFFFFFFF, m * 2);
+        tm = tv("", th.fg, m * 2);
+        tm.setOnClickListener(this);
+        tm.setOnLongClickListener(this);
+        l.addView(tm);
+        l.addView(tv("The default look of the whole app: a palette and its dark or light mode (auto follows the phone).", th.dim, m / 4));
+
+        dd = tv("", th.fg, m * 2);
         dd.setOnClickListener(this);
         l.addView(dd);
-        dx = tv("", 0xFF888888, m / 4);
+        dx = tv("", th.dim, m / 4);
         l.addView(dx);
         hp = cb("Vibrate as touch feedback");
         l.addView(hp);
         l.addView(tv("Only turn this on if Do Not Disturb mutes the vibrations on your phone. "
                 + "They then follow your phone's touch feedback setting, so turning that off silences them.",
-                0xFF888888, 0));
-        vv = tv("", 0xFFFFFFFF, m);
+                th.dim, 0));
+        vv = tv("", th.fg, m);
         vv.setOnClickListener(this);
         l.addView(vv);
-        vz = tv("", 0xFF888888, m / 4);
+        vz = tv("", th.dim, m / 4);
         l.addView(vz);
-        dr = tv("", 0xFFFFFFFF, m);
+        dr = tv("", th.fg, m);
         dr.setOnClickListener(this);
         l.addView(dr);
         l.addView(tv("Count a list of dhikr slides one after another, shown above the number. "
-                + "Pick, import, export or delete profiles there.", 0xFF888888, m / 4));
+                + "Pick, import, export or delete profiles there.", th.dim, m / 4));
         for (int i = 0; i < e.length; i++) {
             if (i == 6)
                 l.addView(tv("Vibration notation: milliseconds, alternating buzz and pause. "
-                        + "\"40 60 40\" = buzz 40, pause 60, buzz 40. Empty = off.", 0xFF888888, m));
-            l.addView(tv(M.D[i][2], 0xFFFFFFFF, m));
+                        + "\"40 60 40\" = buzz 40, pause 60, buzz 40. Empty = off.", th.dim, m));
+            l.addView(tv(M.D[i][2], th.fg, m));
             e[i] = new EditText(this);
-            e[i].setTextColor(0xFFFFFFFF);
+            e[i].setTextColor(th.fg);
             e[i].setSingleLine();
             if (i < 5) e[i].setInputType(2); // numbers only
             l.addView(e[i]);
@@ -116,27 +128,33 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         df.setOnClickListener(this);
         df.setOnLongClickListener(this);
         l.addView(df);
-        l.addView(tv("Hold to restore the defaults. Also forgets the text sizes you set by pinching on dhikr slides.", 0xFF888888, 0));
+        l.addView(tv("Hold to restore the defaults. Also forgets the text sizes you set by pinching on dhikr slides.", th.dim, 0));
         rl = tv("RESET LAYOUT", 0xFFFF5252, m);
         rl.setOnClickListener(this);
         rl.setOnLongClickListener(this);
         l.addView(rl);
-        l.addView(tv("Hold to put the menu, buttons, dhikr text, title, counter and footer back at their default places.", 0xFF888888, 0));
+        l.addView(tv("Hold to put the menu, buttons, dhikr text, title, counter and footer back at their default places.", th.dim, 0));
 
         ScrollView s = new ScrollView(this);
-        s.setBackgroundColor(0xFF000000);
+        s.setBackgroundColor(th.bg);
         s.setFitsSystemWindows(true);
         s.addView(l);
         setContentView(s);
         fill(false);
+        themeRow();
+    }
+
+    void themeRow() {
+        int[] v = Th.parse(p.getString("th", "0,0"));
+        tm.setText("Theme: " + Th.NAMES[v[0]] + ", " + Th.MODES[v[1]] + "  (tap: next palette, hold: dark / light / auto)");
     }
 
     // white tick box so it stays visible on black when checked
     CheckBox cb(String s) {
         CheckBox c = new CheckBox(this);
         c.setText(s);
-        c.setTextColor(0xFFFFFFFF);
-        c.setButtonTintList(ColorStateList.valueOf(0xFFFFFFFF));
+        c.setTextColor(th.fg);
+        c.setButtonTintList(ColorStateList.valueOf(th.fg));
         return c;
     }
 
@@ -190,7 +208,11 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     @Override public void onClick(View x) {
-        if (x == dd) {
+        if (x == tm) {
+            int[] v = Th.parse(p.getString("th", "0,0"));
+            p.edit().putString("th", (v[0] + 1) % Th.NAMES.length + "," + v[1]).apply();
+            recreate();
+        } else if (x == dd) {
             dm = (dm + 1) % DN.length;
             if (dm != 0 && !nm.isNotificationPolicyAccessGranted()) {
                 try {
@@ -287,12 +309,18 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         res.setText(r[0]);
         if (r[1] == null) return;
         final String u = r[2];
-        new AlertDialog.Builder(this).setTitle("Update available").setMessage(r[1])
+        th.dlg(this).setTitle("Update available").setMessage(r[1])
                 .setPositiveButton(test() ? "Open" : "Download", (d, w) -> view(u))
                 .setNegativeButton("Later", null).show();
     }
 
     @Override public boolean onLongClick(View x) {
+        if (x == tm) {
+            int[] v = Th.parse(p.getString("th", "0,0"));
+            p.edit().putString("th", v[0] + "," + (v[1] + 1) % 3).apply();
+            recreate();
+            return true;
+        }
         if (x == df) {
             fill(true);
             clearZ();

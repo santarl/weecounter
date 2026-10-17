@@ -29,6 +29,7 @@ import android.text.Spanned;
 import android.text.style.RelativeSizeSpan;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
+import android.view.ContextThemeWrapper;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -111,6 +112,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     int shx, shy;    // current pixel-shift offset in px
     Runnable pend;   // slide change waiting for the slide-out animation
     Pd ind;          // view dots, just left of the counter
+    Th th;           // colours: the theme of this window's profile
     ScaleGestureDetector sd; // pinch to resize the dhikr text of a slide / view
     float zs;        // text scale while pinching
     float spx;       // px per sp
@@ -186,10 +188,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     // description, author and version of a profile
-    static void about(Activity a, String name, String tx) {
+    static void about(Activity a, Th th, String name, String tx) {
         String au = hd(tx, "author"), v = hd(tx, "version"), ds = hd(tx, "desc");
         String m = (au.isEmpty() ? "" : "By " + au) + (v.isEmpty() ? "" : (au.isEmpty() ? "" : "  -  ") + "version " + v);
-        new AlertDialog.Builder(a).setTitle(name).setMessage(m + (m.isEmpty() ? "" : "\n\n")
+        th.dlg(a).setTitle(name).setMessage(m + (m.isEmpty() ? "" : "\n\n")
                 + (ds.isEmpty() ? "No description" : ds)).setPositiveButton("OK", null).show();
     }
 
@@ -351,14 +353,13 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
-        getWindow().setStatusBarColor(0xFF000000);
-        getWindow().setNavigationBarColor(0xFF000000);
         p = getSharedPreferences("p", 0);
         // every window has its own profile: from its state, or the shortcut it was opened with
         // (wee://profile/<name>), or else the one chosen last
         Uri u = getIntent().getData();
         pin = u != null && "wee".equals(u.getScheme()) ? u.getLastPathSegment() : null;
         pf = b != null && b.containsKey("pf") ? b.getString("pf") : pin != null ? pin : p.getString("pf", "");
+        th = Th.get(this, p, pf);
         n = p.getInt("n", 0);
         mode = p.getInt("md", 0);
         vi = p.getInt("vi", 0);
@@ -464,6 +465,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     int[] cs() {
         try {
+            if (g(5).trim().equals(D[5][1])) return th.lap; // not changed: the colours of the theme
             String[] a = g(5).trim().split("\\s+");
             int[] r = new int[a.length];
             for (int j = 0; j < a.length; j++)
@@ -500,6 +502,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     @Override protected void onResume() {
         super.onResume();
+        if (chain) { // back from the settings or profile screens opened here: they may have changed the profile
+            chain = false;
+            pf = p.getString("pf", "");
+        }
+        th = Th.get(this, p, pf);
         mx = num(1);
         st = Math.max(1, num(2));
         c.sz = dp(Math.max(6, num(3)));
@@ -513,12 +520,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         vr = fx(8);
         vl = fx(9);
         vc = fx(10);
-        if (chain) { // back from the settings or profile screens opened here: they may have changed the profile
-            chain = false;
-            pf = p.getString("pf", "");
-        }
         load(); // also takes over what another window counted meanwhile
         if (pr == null) n = p.getInt("n", 0);
+        skin(); // again: load() may have dropped a profile that is gone
         weekly();
         em = EM[new Random().nextInt(EM.length)];
         shown = -2;
@@ -603,7 +607,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     @Override public void onWindowFocusChanged(boolean h) {
         super.onWindowFocusChanged(h);
         if (h) {
-            f.setSystemUiVisibility(0x1706);
+            f.setSystemUiVisibility(0x1706 | (th.light ? 0x2010 : 0));
             if (cl != null) { // re-check DND, the user may have changed it from the shade
                 sync();
                 draw();
@@ -888,6 +892,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         vw.setText("view: " + NM[mode]);
         dt.setText(DT[dnOn ? p.getInt("dn", 0) : (edit ? 1 : 0)]);
         for (View x : ui) x.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);
+        f.setBackgroundColor(cv && mode == 0 ? 0xFF000000 : th.bg); // blackout stays black
         if (!dnOn && !edit) dt.setVisibility(View.INVISIBLE);
         if (vn < 2) ind.setVisibility(View.INVISIBLE);
         if (!dk) {
@@ -909,6 +914,21 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     // (re)loads the active dhikr profile; a missing or broken one falls back to the normal counter
+    // puts the theme of this window's profile on the screen
+    void skin() {
+        th = Th.get(this, p, pf);
+        th.bars(this);
+        cl = cs();
+        cf.cl = cl;
+        f.setBackgroundColor(th.bg);
+        dl.setTextColor(th.fg);
+        pg.setTextColor(th.dim);
+        ttl.setTextColor(th.dim);
+        dt.setTextColor(th.warn);
+        for (TextView x : new TextView[]{se, rs, dn, vw}) x.setTextColor(th.dim);
+        ind.off = (th.dim & 0xFFFFFF) | 0x66000000;
+    }
+
     // once a week (and not more than every 6 hours after a failure) look for new profiles:
     // one small request for the manifest, none if the setting is off
     void weekly() {
@@ -934,7 +954,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 ov(pr, p.getString("rp:" + pf, ""));
                 if (!p.getBoolean("in:" + pf, false) && !hd(tx, "desc").isEmpty()) { // first open: the description
                     p.edit().putBoolean("in:" + pf, true).apply();
-                    about(this, pf, tx);
+                    about(this, th, pf, tx);
                 }
                 int k = pr.c.length;
                 cn = new int[k];
@@ -1117,8 +1137,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         final EditText q = new EditText(this);
         q.setSingleLine();
         q.setHint("Search title and text");
-        q.setHintTextColor(0xFF888888);
-        q.setTextColor(0xFFFFFFFF);
+        q.setHintTextColor(th.dim);
+        q.setTextColor(th.fg);
         final ListView lv = new ListView(this);
         final ArrayAdapter<String> ad = new ArrayAdapter<>(this, android.R.layout.select_dialog_item);
         final ArrayList<Integer> ix = new ArrayList<>(); // the slides shown, best first
@@ -1166,9 +1186,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         TextView h = new TextView(this);
         h.setText(pf);
         h.setTextSize(18);
-        h.setTextColor(0xFFFFFFFF);
+        h.setTextColor(th.fg);
         h.setPadding(dp(24), dp(20), dp(24), dp(8));
-        final AlertDialog d = new AlertDialog.Builder(this).setCustomTitle(h).setView(l)
+        final AlertDialog d = th.dlg(this).setCustomTitle(h).setView(l)
                 .setNeutralButton("Advanced", (dg, w) -> repeats()).create();
         lv.setOnItemClickListener((pa, pv, pos, pid) -> {
             d.dismiss();
@@ -1201,8 +1221,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         final EditText all = new EditText(this);
         all.setInputType(InputType.TYPE_CLASS_NUMBER);
         all.setHint("as in the profile");
-        all.setHintTextColor(0xFF888888);
-        all.setTextColor(0xFFFFFFFF);
+        all.setHintTextColor(th.dim);
+        all.setTextColor(th.fg);
         if (one) all.setText(sv.substring(1));
         final EditText[] ed = new EditText[k];
         LinearLayout l = new LinearLayout(this);
@@ -1212,15 +1232,15 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             r.setGravity(Gravity.CENTER_VERTICAL);
             TextView tt = new TextView(this);
             tt.setText((i + 1) + ". " + pr.ti[i]);
-            tt.setTextColor(0xFFFFFFFF);
+            tt.setTextColor(th.fg);
             tt.setSingleLine();
             tt.setEllipsize(TextUtils.TruncateAt.END);
             r.addView(tt, new LinearLayout.LayoutParams(0, -2, 1f));
             ed[i] = new EditText(this);
             ed[i].setInputType(InputType.TYPE_CLASS_NUMBER);
             ed[i].setHint("" + pr.c0[i]);
-            ed[i].setHintTextColor(0xFF888888);
-            ed[i].setTextColor(0xFFFFFFFF);
+            ed[i].setHintTextColor(th.dim);
+            ed[i].setTextColor(th.fg);
             ed[i].setGravity(Gravity.CENTER);
             if (i < a.length) ed[i].setText(a[i].trim());
             r.addView(ed[i], new LinearLayout.LayoutParams(dp(90), -2));
@@ -1230,7 +1250,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         sc.addView(l);
         final CheckBox ck = new CheckBox(this);
         ck.setText("Individual repeats");
-        ck.setTextColor(0xFFFFFFFF);
+        ck.setTextColor(th.fg);
         ck.setChecked(!one && !sv.isEmpty());
         sc.setVisibility(ck.isChecked() ? View.VISIBLE : View.GONE);
         ck.setOnCheckedChangeListener((cb, on) -> {
@@ -1239,7 +1259,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         });
         TextView hint = new TextView(this);
         hint.setText("Same repeat for all slides (empty keeps the profile's own):");
-        hint.setTextColor(0xFF888888);
+        hint.setTextColor(th.dim);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(8), dp(20), dp(4));
@@ -1247,7 +1267,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         root.addView(all);
         root.addView(ck);
         root.addView(sc, new LinearLayout.LayoutParams(-1, getResources().getDisplayMetrics().heightPixels * 2 / 5));
-        new AlertDialog.Builder(this).setTitle("Repeats").setView(root)
+        th.dlg(this).setTitle("Repeats").setView(root)
                 .setPositiveButton("Save", (dg, w) -> {
                     String res;
                     if (ck.isChecked()) {
@@ -1279,7 +1299,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     // top-left menu
     void menu(View anchor) {
-        PopupMenu m = new PopupMenu(this, anchor);
+        PopupMenu m = new PopupMenu(new ContextThemeWrapper(this, th.light ? android.R.style.Theme_DeviceDefault_Light
+                : android.R.style.Theme_DeviceDefault), anchor);
         m.getMenu().add(0, 1, 0, "Settings");
         m.getMenu().add(0, 2, 1, "Profiles");
         m.getMenu().add(0, 3, 2, "Edit layout");
@@ -1822,11 +1843,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             float u = m.dp(1);
             p.setStyle(Paint.Style.STROKE);
             p.setStrokeWidth(u);
-            p.setColor(0x88FFFFFF);
+            p.setColor((m.th.fg & 0xFFFFFF) | 0x88000000);
             for (int i = 0; i < m.er.length; i++) if (i != sel) c.drawRect(m.er[i], p);
             if (sel >= 0) {
                 RectF r = m.er[sel];
-                p.setColor(0xFF00E676);
+                p.setColor(m.th.ac);
                 p.setStrokeWidth(2 * u);
                 c.drawRect(r, p);
                 p.setStyle(Paint.Style.FILL);
@@ -1839,7 +1860,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             float cx = getWidth() / 2f, cy = 26 * u;
             p.setTextAlign(Paint.Align.CENTER);
             p.setTextSize(22 * m.spx);
-            p.setColor(0xFF00E676);
+            p.setColor(m.th.ac);
             c.drawCircle(cx + 30 * u, cy, 20 * u, p);
             p.setColor(0xFF000000);
             c.drawText("\u2713", cx + 30 * u, cy + 8 * u, p);
@@ -1847,7 +1868,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             c.drawCircle(cx - 30 * u, cy, 20 * u, p);
             p.setColor(0xFFFFFFFF);
             c.drawText("\u21BA", cx - 30 * u, cy + 8 * u, p);
-            p.setColor(0xFFAAAAAA);
+            p.setColor(m.th.dim);
             p.setTextSize(12 * m.spx);
             c.drawText("tap an element, drag to move, pinch to scale", cx, 62 * u, p);
             c.drawText("drag an edge or corner to resize, hold undo to reset", cx, 78 * u, p);
@@ -1858,7 +1879,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // slide, the current one lit in the slide colour, centred in the view's height
     static class Pd extends View {
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        int n, cur, col;
+        int n, cur, col, off = 0xFF444444;
 
         Pd(Context x) {
             super(x);
@@ -1868,7 +1889,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             float u = getResources().getDisplayMetrics().density, pitch = 16 * u;
             float y = (getHeight() - (n - 1) * pitch) / 2f;
             for (int i = 0; i < n; i++) {
-                p.setColor(i == cur ? col : 0xFF444444);
+                p.setColor(i == cur ? col : off);
                 c.drawCircle(getWidth() - 10 * u, y + i * pitch, (i == cur ? 4 : 3) * u, p);
             }
         }

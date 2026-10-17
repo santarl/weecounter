@@ -34,12 +34,17 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         + "---34\n[70]\u0627\u0644\u0644\u0647 \u0623\u0643\u0628\u0631\n[30]Allahu Akbar\n";
 
     SharedPreferences p, d; // p = settings, d = the profiles (name -> text)
+    Th th;                  // colours
     LinearLayout ls;
     String ex;              // profile being exported
     TextView br;            // the browse button, shows how many profiles have an update
 
     @Override protected void onCreate(Bundle b) {
+        SharedPreferences q = getSharedPreferences("p", 0);
+        th = Th.get(this, q, q.getString("pf", "")); // the theme of the profile this screen was opened from
+        setTheme(th.theme());
         super.onCreate(b);
+        th.bars(this);
         p = getSharedPreferences("p", 0);
         d = getSharedPreferences("d", 0);
         if (!p.getBoolean("sd", false)) {
@@ -60,13 +65,13 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
                 + "shown as an arrow glyph otherwise. Swipe left for the next slide, right to go back. "
                 + "Header lines before the first slide: @id, @version (a number), @author and @desc (a description, "
                 + "shown once when the profile is first opened; hold a profile here to see it again). "
-                + "Profiles are .dhikr files: share one to this app from any other app to import it.", 0xFF888888));
-        br = tv("", 0xFF00E676);
+                + "Profiles are .dhikr files: share one to this app from any other app to import it.", th.dim));
+        br = tv("", th.ac);
         br.setId(5);
         br.setPadding(0, dp(16), 0, 0);
         br.setOnClickListener(this);
         l.addView(br);
-        TextView im = tv("IMPORT FILE", 0xFF00E676);
+        TextView im = tv("IMPORT FILE", th.ac);
         im.setId(4);
         im.setPadding(0, dp(16), 0, dp(8));
         im.setOnClickListener(this);
@@ -76,7 +81,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         l.addView(ls);
 
         ScrollView s = new ScrollView(this);
-        s.setBackgroundColor(0xFF000000);
+        s.setBackgroundColor(th.bg);
         s.setFitsSystemWindows(true);
         s.addView(l);
         setContentView(s);
@@ -126,7 +131,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
     void row(String label, String key, boolean on, boolean full) {
         LinearLayout r = new LinearLayout(this);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        TextView a = tv((on ? "\u2713 " : "") + label, 0xFFFFFFFF);
+        TextView a = tv((on ? "\u2713 " : "") + label, th.fg);
         a.setTextSize(18);
         a.setPadding(0, dp(16), dp(8), dp(16));
         a.setId(1);
@@ -135,13 +140,13 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         if (full) a.setOnLongClickListener(this); // hold: description, author, version
         r.addView(a, new LinearLayout.LayoutParams(0, -2, 1f));
         if (full) {
-            TextView e = tv("export", 0xFF888888);
+            TextView e = tv("export", th.dim);
             e.setPadding(dp(12), dp(16), dp(12), dp(16));
             e.setId(2);
             e.setTag(key);
             e.setOnClickListener(this);
             r.addView(e);
-            TextView sc = tv("shortcut", 0xFF888888);
+            TextView sc = tv("shortcut", th.dim);
             sc.setPadding(dp(12), dp(16), dp(12), dp(16));
             sc.setId(6);
             sc.setTag(key);
@@ -194,7 +199,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         String k = (String) v.getTag();
         if (v.getId() == 1) {
             String t = k.isEmpty() ? null : d.getString(k, null);
-            if (t != null) M.about(this, k, t);
+            if (t != null) M.about(this, th, k, t);
             return t != null;
         }
         if (v.getId() != 3) return false;
