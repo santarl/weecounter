@@ -84,7 +84,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         tm.setOnClickListener(this);
         tm.setOnLongClickListener(this);
         l.addView(tm);
-        l.addView(tv("The default look of the whole app: a palette and its dark or light mode (auto follows the phone).", th.dim, m / 4));
+        l.addView(tv("The default look of the whole app: a palette and its dark or light mode (auto follows the phone). Menu > Theme tries them on the main screen, for one profile or as the default.", th.dim, m / 4));
 
         dd = tv("", th.fg, m * 2);
         dd.setOnClickListener(this);
@@ -124,12 +124,12 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         wk = cb("Check for new profiles weekly");
         l.addView(wk);
 
-        df = tv("RESET TO DEFAULTS", 0xFFFF5252, m);
+        df = tv("RESET TO DEFAULTS", th.bad, m);
         df.setOnClickListener(this);
         df.setOnLongClickListener(this);
         l.addView(df);
         l.addView(tv("Hold to restore the defaults. Also forgets the text sizes you set by pinching on dhikr slides.", th.dim, 0));
-        rl = tv("RESET LAYOUT", 0xFFFF5252, m);
+        rl = tv("RESET LAYOUT", th.bad, m);
         rl.setOnClickListener(this);
         rl.setOnLongClickListener(this);
         l.addView(rl);

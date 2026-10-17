@@ -14,15 +14,15 @@ final class Th {
     static final String[] MODES = {"dark", "light", "auto"};
     // per palette: background, text, dim text, accent; first dark, then light
     static final int[][] C = {
-        {0xFF000000, 0xFFFFFFFF, 0xFF888888, 0xFF00E676, 0xFFFFFFFF, 0xFF111111, 0xFF666666, 0xFF00A152},
-        {0xFF0B1621, 0xFFE6F1FF, 0xFF7F93A8, 0xFF4FC3F7, 0xFFF2F8FD, 0xFF0B2540, 0xFF5B7185, 0xFF0277BD},
+        {0xFF000000, 0xFFFFFFFF, 0xFF888888, 0xFF00E676, 0xFFFFFFFF, 0xFF111111, 0xFF666666, 0xFF008744},
+        {0xFF0B1621, 0xFFE6F1FF, 0xFF7F93A8, 0xFF4FC3F7, 0xFFF2F8FD, 0xFF0B2540, 0xFF5B7185, 0xFF0174B9},
         {0xFF1A0F14, 0xFFFCE4EC, 0xFF9C7A86, 0xFFF48FB1, 0xFFFFF5F8, 0xFF3B0A1E, 0xFF8A5A6C, 0xFFC2185B},
-        {0xFF1B1710, 0xFFF5ECD7, 0xFF9A8F75, 0xFFFFC107, 0xFFFBF6E9, 0xFF3A2F12, 0xFF7A6E50, 0xFFB8860B},
+        {0xFF1B1710, 0xFFF5ECD7, 0xFF9A8F75, 0xFFFFC107, 0xFFFBF6E9, 0xFF3A2F12, 0xFF7A6E50, 0xFF8F6808},
         {0xFF0C1A12, 0xFFE3F4E8, 0xFF7DA08A, 0xFF66BB6A, 0xFFF1F8F3, 0xFF10301B, 0xFF4F7A5E, 0xFF2E7D32},
         {0xFF140F1E, 0xFFEDE7F6, 0xFF8E82A8, 0xFFB388FF, 0xFFF6F2FC, 0xFF24114A, 0xFF6A5C88, 0xFF673AB7},
     };
 
-    int pal, mode, bg, fg, dim, ac, warn;
+    int pal, mode, bg, fg, dim, ac, warn, bad;
     boolean light;
     int[] lap; // lap colours, unless you wrote your own in the settings
 
@@ -38,8 +38,9 @@ final class Th {
         fg = c[o + 1];
         dim = c[o + 2];
         ac = c[o + 3];
-        warn = light ? 0xFFB26A00 : 0xFFFFB74D;
-        lap = light ? new int[]{fg, ac, 0xFF0277BD, 0xFFB8860B, 0xFFD32F2F, 0xFF8E24AA}
+        warn = light ? 0xFFA05F00 : 0xFFFFB74D;
+        bad = light ? 0xFFD32F2F : 0xFFFF5252;
+        lap = light ? new int[]{fg, ac, 0xFF0174B9, 0xFF8F6808, 0xFFD32F2F, 0xFF8E24AA}
                 : new int[]{fg, ac, 0xFF40C4FF, 0xFFFFD740, 0xFFFF5252, 0xFFE040FB};
     }
 
@@ -59,6 +60,13 @@ final class Th {
     static Th get(Context x, SharedPreferences p, String pf) {
         String s = pf.isEmpty() ? null : p.getString("th:" + pf, null);
         return new Th(x, s != null ? s : p.getString("th", "0,0"));
+    }
+
+    // a blended with b, t of the way (0..1)
+    static int mix(int a, int b, float t) {
+        int r = 0xFF000000;
+        for (int s = 0; s < 24; s += 8) r |= (int) ((a >> s & 255) * (1 - t) + (b >> s & 255) * t) << s;
+        return r;
     }
 
     int theme() {

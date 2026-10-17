@@ -152,7 +152,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
             sc.setTag(key);
             sc.setOnClickListener(this);
             r.addView(sc);
-            TextView x = tv("\u2715", 0xFFFF5252);
+            TextView x = tv("\u2715", th.bad);
             x.setTextSize(22);
             x.setPadding(dp(16), dp(12), dp(16), dp(12));
             x.setId(3);

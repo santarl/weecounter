@@ -29,7 +29,9 @@ import android.text.Spanned;
 import android.text.style.RelativeSizeSpan;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
+import android.graphics.drawable.GradientDrawable;
 import android.view.ContextThemeWrapper;
+import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -113,6 +115,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     Runnable pend;   // slide change waiting for the slide-out animation
     Pd ind;          // view dots, just left of the counter
     Th th;           // colours: the theme of this window's profile
+    LinearLayout sp; // the theme strip (menu > Theme), null until first opened
+    GestureDetector sg; // swipes on the strip
     ScaleGestureDetector sd; // pinch to resize the dhikr text of a slide / view
     float zs;        // text scale while pinching
     float spx;       // px per sp
@@ -768,6 +772,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     @Override public void onBackPressed() {
+        if (sp != null && sp.getVisibility() == View.VISIBLE) {
+            sp.setVisibility(View.GONE);
+            return;
+        }
         if (edit) exitEdit();
         else super.onBackPressed();
     }
@@ -908,6 +916,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         c.n = cnt;
         c.st = lap;
         c.col = co;
+        c.bad = th.bad;
         c.nx = cl[(ci + 1) % cl.length];
         c.setVisibility(cv && mode > 0 ? View.VISIBLE : View.INVISIBLE);
         c.invalidate();
@@ -986,6 +995,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // Swipes (dhikr only): left = next slide (counts as done), right = previous slide,
     // up / down = next / previous view. A recognised swipe never counts as a tap or a hold.
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
+        if (sp != null && sp.getVisibility() == View.VISIBLE) { // the theme strip is up: only it gets touches
+            if (e.getY() >= sp.getTop()) return super.dispatchTouchEvent(e);
+            if (e.getActionMasked() == MotionEvent.ACTION_UP) sp.setVisibility(View.GONE); // a tap outside closes it
+            return true;
+        }
         if (pr != null && !edit) {
             sd.onTouchEvent(e);
             if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN && !sw) {
@@ -1118,6 +1132,102 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             best = Math.min(best, r[n]);
         }
         return best > tol ? -1 : 1000 - 300 * best;
+    }
+
+    // menu "Theme": a strip at the bottom over the live screen. Tap a palette, or swipe the strip left
+    // or right, to try it; it is applied at once, to this profile (or to the default without one).
+    void strip() {
+        if (sp != null) f.removeView(sp);
+        sg = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onFling(MotionEvent a, MotionEvent b, float vx, float vy) {
+                if (Math.abs(vx) > 1000 && Math.abs(vx) > 2 * Math.abs(vy)) pick(th.pal + (vx < 0 ? 1 : -1), th.mode);
+                return false;
+            }
+        });
+        sp = new LinearLayout(this) {
+            @Override public boolean dispatchTouchEvent(MotionEvent e) {
+                sg.onTouchEvent(e);
+                return super.dispatchTouchEvent(e);
+            }
+        };
+        sp.setOrientation(LinearLayout.VERTICAL);
+        sp.setPadding(dp(8), dp(8), dp(8), dp(8));
+        f.addView(sp, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        stripUi();
+    }
+
+    // theme of this profile (or the default): saved, shown on the screen and on the strip
+    void pick(int a, int m) {
+        a = (a + Th.NAMES.length) % Th.NAMES.length;
+        p.edit().putString(pf.isEmpty() ? "th" : "th:" + pf, a + "," + m).apply();
+        skin();
+        draw();
+        stripUi();
+    }
+
+    TextView sb(String s, int col, View.OnClickListener l) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextColor(col);
+        t.setTextSize(15);
+        t.setPadding(dp(10), dp(10), dp(10), dp(10));
+        t.setOnClickListener(l);
+        return t;
+    }
+
+    void stripUi() {
+        sp.removeAllViews();
+        sp.setBackgroundColor(Th.mix(th.bg, th.fg, .1f));
+        LinearLayout r = new LinearLayout(this); // the palettes, each chip in its own colours
+        for (int i = 0; i < Th.NAMES.length; i++) {
+            final int k = i;
+            Th c = new Th(this, i + "," + th.mode);
+            TextView t = new TextView(this);
+            t.setText(Th.NAMES[i]);
+            t.setTextSize(11);
+            t.setGravity(Gravity.CENTER);
+            t.setTextColor(c.ac);
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(c.bg);
+            g.setCornerRadius(dp(8));
+            g.setStroke(dp(i == th.pal ? 3 : 1), i == th.pal ? th.fg : th.dim);
+            t.setBackground(g);
+            t.setOnClickListener(v -> pick(k, th.mode));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(44), 1f);
+            lp.setMargins(dp(3), 0, dp(3), 0);
+            r.addView(t, lp);
+        }
+        sp.addView(r);
+        LinearLayout m = new LinearLayout(this); // dark / light / auto, done
+        m.setGravity(Gravity.CENTER_VERTICAL);
+        for (int i = 0; i < 3; i++) {
+            final int k = i;
+            m.addView(sb(i == th.mode ? "[" + Th.MODES[i] + "]" : Th.MODES[i], i == th.mode ? th.ac : th.dim,
+                    v -> pick(th.pal, k)));
+        }
+        m.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        m.addView(sb("done", th.fg, v -> sp.setVisibility(View.GONE)));
+        sp.addView(m);
+        if (!pf.isEmpty()) { // a profile can have its own theme or follow the default
+            TextView h = new TextView(this);
+            h.setText(p.contains("th:" + pf) ? pf + " has its own theme" : pf + " uses the default theme");
+            h.setTextColor(th.dim);
+            h.setPadding(dp(10), 0, dp(10), 0);
+            sp.addView(h);
+            LinearLayout d = new LinearLayout(this);
+            d.addView(sb("use default", th.fg, v -> {
+                p.edit().remove("th:" + pf).apply();
+                skin();
+                draw();
+                stripUi();
+            }));
+            d.addView(sb("make default", th.fg, v -> {
+                p.edit().putString("th", th.pal + "," + th.mode).remove("th:" + pf).apply();
+                stripUi();
+                Toast.makeText(this, "Default theme set", Toast.LENGTH_SHORT).show();
+            }));
+            sp.addView(d);
+        }
     }
 
     // menu "Goto": a search box and the slide list (every word must be found, in the title first,
@@ -1305,10 +1415,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         m.getMenu().add(0, 2, 1, "Profiles");
         m.getMenu().add(0, 3, 2, "Edit layout");
         if (pr != null) m.getMenu().add(0, 4, 3, "Goto");
+        m.getMenu().add(0, 5, 4, "Theme");
         m.setOnMenuItemClickListener(i -> {
             int id = i.getItemId();
             if (id == 3) enterEdit();
             else if (id == 4) goTo();
+            else if (id == 5) strip();
             else {
                 p.edit().putString("pf", pf).apply(); // the screens show this window's profile and may change it
                 chain = true;
@@ -1488,7 +1600,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // remaining mark, and when it is empty it fills again, until the next lap starts over.
     static class V extends View {
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        int col, mode, n, st, sz, cols, rows;
+        int col, mode, n, st, sz, cols, rows, bad = 0xFFFF5252;
         float pw, ph; // grid pitch
 
         V(Context x) {
@@ -1655,7 +1767,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             if (sn != null) {
                 for (int i = 0; i < len + ap.size(); i++) {
                     int z = i < len ? sn[i] : ap.get(i - len);
-                    p.setColor(i >= len ? 0xFFFF5252 : i < nb ? nx : col);
+                    p.setColor(i >= len ? bad : i < nb ? nx : col);
                     float x = ox + z % cols * sz, y = oy + z / cols * sz;
                     if (i < len) c.drawRect(x + 1, y + 1, x + sz - 1, y + sz - 1, p);
                     else c.drawCircle(x + sz / 2f, y + sz / 2f, sz * .4f, p);
