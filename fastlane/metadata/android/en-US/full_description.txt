@@ -14,7 +14,7 @@ A tiny, fast tap counter built for AMOLED screens. No ads, no tracking. The only
 
 <b>Settings</b>
 <ul>
-<li>Font size, dot/tally size, colours and lap length</li>
+<li>Font size, dot/tally size and lap length, six colour themes with dark and light mode</li>
 <li>Optional "count reached" target that buzzes once; counting continues past it</li>
 <li>Custom vibration patterns for every event, written as plain milliseconds like "40 60 40"</li>
 <li>Keep the screen on while counting</li>

@@ -64,7 +64,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         {"st", "100", "Lap length (count, changes colour)"},
         {"sz", "24", "Dot / tally / game size (dp)"},
         {"ps", "6", "Pixel shift against burn-in (dp, 0 = off)"},
-        {"cl", "FFFFFF 00E676 40C4FF FFD740 FF5252 E040FB", "Colours (hex, space separated)"},
         {"vt", "15", "Vibration: tap"},
         {"vh", "40 60 40", "Vibration: hold (panel / counting view)"},
         {"vr", "80", "Vibration: reset"},
@@ -467,19 +466,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
     }
 
-    int[] cs() {
-        try {
-            if (g(5).trim().equals(D[5][1])) return th.lap; // not changed: the colours of the theme
-            String[] a = g(5).trim().split("\\s+");
-            int[] r = new int[a.length];
-            for (int j = 0; j < a.length; j++)
-                r[j] = 0xFF000000 | (int) Long.parseLong(a[j].replace("#", ""), 16);
-            return r;
-        } catch (Exception e) {
-            return new int[]{0xFFFFFFFF};
-        }
-    }
-
     // "40 60 40" = buzz 40ms, pause 60ms, buzz 40ms. Invalid/empty = off.
     VibrationEffect fx(int i) {
         try {
@@ -517,13 +503,13 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         ps = Math.max(0, num(4));
         hp = p.getBoolean("hp", false);
         vk = p.getInt("vk", 0);
-        cl = cs();
+        cl = th.lap;
         cf.cl = cl;
-        vt = fx(6);
-        vh = fx(7);
-        vr = fx(8);
-        vl = fx(9);
-        vc = fx(10);
+        vt = fx(5);
+        vh = fx(6);
+        vr = fx(7);
+        vl = fx(8);
+        vc = fx(9);
         load(); // also takes over what another window counted meanwhile
         if (pr == null) n = p.getInt("n", 0);
         skin(); // again: load() may have dropped a profile that is gone
@@ -927,7 +913,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     void skin() {
         th = Th.get(this, p, pf);
         th.bars(this);
-        cl = cs();
+        cl = th.lap;
         cf.cl = cl;
         f.setBackgroundColor(th.bg);
         dl.setTextColor(th.fg);

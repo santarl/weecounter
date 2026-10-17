@@ -12,19 +12,13 @@ import android.view.View;
 final class Th {
     static final String[] NAMES = {"AMOLED", "Ocean", "Rose", "Sand", "Forest", "Violet"};
     static final String[] MODES = {"dark", "light", "auto"};
-    // per palette: background, text, dim text, accent; first dark, then light
-    static final int[][] C = {
-        {0xFF000000, 0xFFFFFFFF, 0xFF888888, 0xFF00E676, 0xFFFFFFFF, 0xFF111111, 0xFF666666, 0xFF008744},
-        {0xFF0B1621, 0xFFE6F1FF, 0xFF7F93A8, 0xFF4FC3F7, 0xFFF2F8FD, 0xFF0B2540, 0xFF5B7185, 0xFF0174B9},
-        {0xFF1A0F14, 0xFFFCE4EC, 0xFF9C7A86, 0xFFF48FB1, 0xFFFFF5F8, 0xFF3B0A1E, 0xFF8A5A6C, 0xFFC2185B},
-        {0xFF1B1710, 0xFFF5ECD7, 0xFF9A8F75, 0xFFFFC107, 0xFFFBF6E9, 0xFF3A2F12, 0xFF7A6E50, 0xFF8F6808},
-        {0xFF0C1A12, 0xFFE3F4E8, 0xFF7DA08A, 0xFF66BB6A, 0xFFF1F8F3, 0xFF10301B, 0xFF4F7A5E, 0xFF2E7D32},
-        {0xFF140F1E, 0xFFEDE7F6, 0xFF8E82A8, 0xFFB388FF, 0xFFF6F2FC, 0xFF24114A, 0xFF6A5C88, 0xFF673AB7},
-    };
+    // per palette: its hue (degrees) and how tinted the backgrounds are (0 = pure black / white).
+    // Every other colour is worked out from these, see the constructor.
+    static final float[][] H = {{150, 0}, {205, .5f}, {340, .5f}, {42, .5f}, {140, .5f}, {265, .5f}};
 
     int pal, mode, bg, fg, dim, ac, warn, bad;
     boolean light;
-    int[] lap; // lap colours, unless you wrote your own in the settings
+    int[] lap; // the colour of every lap: text, accent, then the hue turned further and further
 
     Th(Context x, String s) {
         int[] v = parse(s);
@@ -32,16 +26,54 @@ final class Th {
         mode = v[1];
         light = mode == 1 || mode == 2
                 && (x.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) != Configuration.UI_MODE_NIGHT_YES;
-        int[] c = C[pal];
-        int o = light ? 4 : 0;
-        bg = c[o];
-        fg = c[o + 1];
-        dim = c[o + 2];
-        ac = c[o + 3];
-        warn = light ? 0xFFA05F00 : 0xFFFFB74D;
-        bad = light ? 0xFFD32F2F : 0xFFFF5252;
-        lap = light ? new int[]{fg, ac, 0xFF0174B9, 0xFF8F6808, 0xFFD32F2F, 0xFF8E24AA}
-                : new int[]{fg, ac, 0xFF40C4FF, 0xFFFFD740, 0xFFFF5252, 0xFFE040FB};
+        float h = H[pal][0], t = H[pal][1];
+        bg = t == 0 ? (light ? 0xFFFFFFFF : 0xFF000000) : hsl(h, t, light ? .965f : .07f);
+        fg = fit(h, t == 0 ? 0 : .1f, bg, 17);
+        dim = fit(h, t == 0 ? 0 : .15f, bg, 5);
+        ac = fit(h, .85f, bg, 4.6f);
+        warn = fit(38, .9f, bg, 4.6f);
+        bad = fit(2, .85f, bg, 4.6f);
+        lap = new int[]{fg, ac, fit(h + 70, .8f, bg, 4.6f), fit(h + 140, .8f, bg, 4.6f),
+                fit(h + 210, .8f, bg, 4.6f), fit(h + 280, .8f, bg, 4.6f)};
+    }
+
+    // colour of a hue and saturation, with the first lightness (stepped from the vivid middle: up on
+    // a dark background, down on a light one) that has the contrast c to bg, so it reads on any theme
+    static int fit(float h, float s, int bg, float c) {
+        boolean dark = lum(bg) < .4f;
+        int r = 0;
+        for (int i = 0; i <= 50; i++) {
+            r = hsl(h, s, Math.max(0, Math.min(1, dark ? .45f + i * .011f : .55f - i * .011f)));
+            if (ratio(r, bg) >= c) break;
+        }
+        return r;
+    }
+
+    static int hsl(float h, float s, float l) {
+        float q = l < .5f ? l * (1 + s) : l + s - l * s, p = 2 * l - q, k = h / 360;
+        return 0xFF000000 | ch(p, q, k + 1f / 3) << 16 | ch(p, q, k) << 8 | ch(p, q, k - 1f / 3);
+    }
+
+    static int ch(float p, float q, float t) {
+        t = (t % 1 + 1) % 1;
+        float v = t < 1f / 6 ? p + (q - p) * 6 * t : t < .5f ? q : t < 2f / 3 ? p + (q - p) * (2f / 3 - t) * 6 : p;
+        return Math.round(v * 255);
+    }
+
+    // relative luminance, and the contrast ratio of two colours (WCAG)
+    static float lum(int c) {
+        float[] w = {.2126f, .7152f, .0722f};
+        float r = 0;
+        for (int k = 0; k < 3; k++) {
+            float v = (c >> 16 - 8 * k & 255) / 255f;
+            r += w[k] * (v <= .03928f ? v / 12.92f : (float) Math.pow((v + .055f) / 1.055f, 2.4f));
+        }
+        return r;
+    }
+
+    static float ratio(int a, int b) {
+        float x = lum(a), y = lum(b);
+        return (Math.max(x, y) + .05f) / (Math.min(x, y) + .05f);
     }
 
     // {palette, mode} of "palette,mode"; anything odd gives AMOLED dark
@@ -49,7 +81,7 @@ final class Th {
         try {
             String[] t = s.split(",");
             int a = Integer.parseInt(t[0].trim()), m = Integer.parseInt(t[1].trim());
-            if (a >= 0 && a < C.length && m >= 0 && m < 3) return new int[]{a, m};
+            if (a >= 0 && a < H.length && m >= 0 && m < 3) return new int[]{a, m};
         } catch (Exception e) {
             // the default
         }
