@@ -1,6 +1,7 @@
 package io.rfsj.weecounter;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.NotificationManager;
 import android.content.Context;
@@ -10,6 +11,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.media.AudioAttributes;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -78,6 +80,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         "\uD83C\uDF49", "\uD83C\uDF89", "\uD83C\uDF1F", "\uD83D\uDCAF"};
 
     SharedPreferences p;
+    String pin;     // the profile of the shortcut this window was opened with (or null); pf is the window's current profile
+    boolean chain;  // the settings / profile screens were opened from here
     FrameLayout f;
     FrameLayout lay;
     LinearLayout bot;
@@ -340,6 +344,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         getWindow().setStatusBarColor(0xFF000000);
         getWindow().setNavigationBarColor(0xFF000000);
         p = getSharedPreferences("p", 0);
+        // every window has its own profile: from its state, or the shortcut it was opened with
+        // (wee://profile/<name>), or else the one chosen last
+        Uri u = getIntent().getData();
+        pin = u != null && "wee".equals(u.getScheme()) ? u.getLastPathSegment() : null;
+        pf = b != null && b.containsKey("pf") ? b.getString("pf") : pin != null ? pin : p.getString("pf", "");
         n = p.getInt("n", 0);
         mode = p.getInt("md", 0);
         vi = p.getInt("vi", 0);
@@ -494,7 +503,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         vr = fx(8);
         vl = fx(9);
         vc = fx(10);
-        load();
+        if (chain) { // back from the settings or profile screens opened here: they may have changed the profile
+            chain = false;
+            pf = p.getString("pf", "");
+        }
+        load(); // also takes over what another window counted meanwhile
+        if (pr == null) n = p.getInt("n", 0);
         weekly();
         em = EM[new Random().nextInt(EM.length)];
         shown = -2;
@@ -511,13 +525,19 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         run();
     }
 
+    @Override protected void onSaveInstanceState(Bundle o) {
+        super.onSaveInstanceState(o);
+        o.putString("pf", pf);
+    }
+
     @Override protected void onPause() {
         super.onPause();
         f.removeCallbacks(this);
         land();
         undo();
-        SharedPreferences.Editor e = p.edit().putInt("n", n).putInt("md", mode).putInt("vi", vi);
-        if (pr != null) {
+        SharedPreferences.Editor e = p.edit().putInt("md", mode).putInt("vi", vi);
+        if (pr == null) e.putInt("n", n); // a profile counts on its own (cn:), only a plain window writes the plain counter
+        else {
             StringBuilder sb = new StringBuilder();
             for (int c : cn) sb.append(c).append(',');
             e.putString("cn:" + pf, sb.toString()).putInt("cu:" + pf, cur);
@@ -890,12 +910,15 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     void load() {
-        pf = p.getString("pf", "");
         pr = null;
         if (pf.length() > 0) {
             String tx = getSharedPreferences("d", 0).getString(pf, null);
             pr = tx == null ? null : parse(tx);
             if (pr == null) {
+                if (pf.equals(pin)) { // a shortcut of a profile that is gone
+                    Toast.makeText(this, "Profile not found", Toast.LENGTH_SHORT).show();
+                    finish();
+                }
                 pf = "";
             } else {
                 ov(pr, p.getString("rp:" + pf, ""));
@@ -927,6 +950,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 }
             }
         }
+        setTaskDescription(new ActivityManager.TaskDescription(pf.isEmpty() ? null : pf)); // the name in the recent apps
     }
 
     // Swipes (dhikr only): left = next slide (counts as done), right = previous slide,
@@ -1222,7 +1246,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             int id = i.getItemId();
             if (id == 3) enterEdit();
             else if (id == 4) repeats();
-            else startActivity(new Intent(this, id == 1 ? S.class : P.class));
+            else {
+                p.edit().putString("pf", pf).apply(); // the screens show this window's profile and may change it
+                chain = true;
+                startActivity(new Intent(this, id == 1 ? S.class : P.class));
+            }
             return true;
         });
         m.show();

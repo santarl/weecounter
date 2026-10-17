@@ -4,7 +4,10 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
 import android.database.Cursor;
+import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
@@ -106,7 +109,20 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         for (String k : new TreeSet<>(d.getAll().keySet())) row(k, k, k.equals(cur), true);
     }
 
-    // ids: 1 = select, 2 = export, 3 = delete (hold), 4 = import
+    // a home screen shortcut that opens this profile in a window of its own
+    void pin(String k) {
+        ShortcutManager sm = getSystemService(ShortcutManager.class);
+        if (sm == null || !sm.isRequestPinShortcutSupported()) {
+            Toast.makeText(this, "This launcher cannot add shortcuts", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent i = new Intent(this, M.class).setAction(Intent.ACTION_VIEW)
+                .setData(Uri.parse("wee://profile/" + Uri.encode(k)));
+        sm.requestPinShortcut(new ShortcutInfo.Builder(this, "p:" + k).setShortLabel(k).setLongLabel(k)
+                .setIcon(Icon.createWithResource(this, getApplicationInfo().icon)).setIntent(i).build(), null);
+    }
+
+    // ids: 1 = select, 2 = export, 3 = delete (hold), 4 = import, 5 = browse, 6 = shortcut
     void row(String label, String key, boolean on, boolean full) {
         LinearLayout r = new LinearLayout(this);
         r.setGravity(Gravity.CENTER_VERTICAL);
@@ -125,6 +141,12 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
             e.setTag(key);
             e.setOnClickListener(this);
             r.addView(e);
+            TextView sc = tv("shortcut", 0xFF888888);
+            sc.setPadding(dp(12), dp(16), dp(12), dp(16));
+            sc.setId(6);
+            sc.setTag(key);
+            sc.setOnClickListener(this);
+            r.addView(sc);
             TextView x = tv("\u2715", 0xFFFF5252);
             x.setTextSize(22);
             x.setPadding(dp(16), dp(12), dp(16), dp(12));
@@ -153,6 +175,9 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
             }
             case 5:
                 startActivity(new Intent(this, B.class));
+                break;
+            case 6:
+                pin(k);
                 break;
             case 3:
                 Toast.makeText(this, "Hold to delete", Toast.LENGTH_SHORT).show();

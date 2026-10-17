@@ -11,6 +11,8 @@
         <activity
             android:name=".M"
             android:exported="true"
+            android:documentLaunchMode="intoExisting"
+            android:autoRemoveFromRecents="true"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout">
             <intent-filter>
