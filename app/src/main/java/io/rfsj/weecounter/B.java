@@ -108,11 +108,11 @@ public class B extends Activity implements View.OnClickListener {
         l.setOrientation(LinearLayout.VERTICAL);
         l.setPadding(m, m, m, m);
         l.addView(tv("Dhikr profiles shared in the profile repo. Tap a profile to read its description, "
-                + "DOWNLOAD to add it, UPDATE to get a newer version (your counts are kept).", T.DIM, 14));
-        st = tv("", T.DIM, 14);
+                + "DOWNLOAD to add it, UPDATE to get a newer version (your counts are kept).", 0xFF888888, 14));
+        st = tv("", 0xFF888888, 14);
         st.setPadding(0, dp(12), 0, 0);
         l.addView(st);
-        TextView ck = tv("[ CHECK NOW ]", T.FG, 16);
+        TextView ck = tv("CHECK NOW", 0xFF00E676, 16);
         ck.setId(1);
         ck.setPadding(0, dp(8), 0, dp(8));
         ck.setOnClickListener(this);
@@ -139,7 +139,6 @@ public class B extends Activity implements View.OnClickListener {
         x.setText(s);
         x.setTextColor(c);
         x.setTextSize(sp);
-        x.setTypeface(T.F);
         return x;
     }
 
@@ -161,7 +160,7 @@ public class B extends Activity implements View.OnClickListener {
                 System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS));
         ls.removeAllViews();
         JSONArray a = list(p);
-        if (a.length() == 0) ls.addView(tv("No profiles listed", T.DIM, 16));
+        if (a.length() == 0) ls.addView(tv("No profiles listed", 0xFF888888, 16));
         for (int i = 0; i < a.length(); i++) {
             JSONObject o = a.optJSONObject(i);
             if (o != null) row(o);
@@ -178,12 +177,12 @@ public class B extends Activity implements View.OnClickListener {
         LinearLayout n = new LinearLayout(this);
         n.setOrientation(LinearLayout.VERTICAL);
         n.setPadding(0, dp(14), dp(8), dp(14));
-        n.addView(tv(o.optString("name", id), T.FG, 18));
+        n.addView(tv(o.optString("name", id), 0xFFFFFFFF, 18));
         n.addView(tv((au.isEmpty() ? "" : "by " + au + "  -  ") + "version " + v
-                + (sl > 0 ? "  -  " + sl + " slides" : ""), T.DIM, 13));
+                + (sl > 0 ? "  -  " + sl + " slides" : ""), 0xFF888888, 13));
         t.addView(n, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView a = tv(h < 0 ? "[DOWNLOAD]" : h < v ? "[UPDATE]" : "installed",
-                h < 0 ? T.FG : h < v ? T.WARN : T.DIM, 15);
+        TextView a = tv(h < 0 ? "DOWNLOAD" : h < v ? "UPDATE" : "installed",
+                h < 0 ? 0xFF00E676 : h < v ? 0xFFFFC107 : 0xFF888888, 15);
         a.setPadding(dp(8), dp(14), 0, dp(14));
         if (h < v) { // not installed, or older
             a.setId(2);
@@ -192,7 +191,7 @@ public class B extends Activity implements View.OnClickListener {
         }
         t.addView(a);
         r.addView(t);
-        TextView ds = tv(o.optString("desc", "No description"), T.FG, 15);
+        TextView ds = tv(o.optString("desc", "No description"), 0xFFCCCCCC, 15);
         ds.setPadding(0, 0, 0, dp(12));
         ds.setVisibility(View.GONE);
         r.addView(ds);

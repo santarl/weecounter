@@ -60,13 +60,13 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
                 + "shown as an arrow glyph otherwise. Swipe left for the next slide, right to go back. "
                 + "Header lines before the first slide: @id, @version (a number), @author and @desc (a description, "
                 + "shown once when the profile is first opened; hold a profile here to see it again). "
-                + "Profiles are .dhikr files: share one to this app from any other app to import it.", T.DIM));
-        br = tv("", T.FG);
+                + "Profiles are .dhikr files: share one to this app from any other app to import it.", 0xFF888888));
+        br = tv("", 0xFF00E676);
         br.setId(5);
         br.setPadding(0, dp(16), 0, 0);
         br.setOnClickListener(this);
         l.addView(br);
-        TextView im = tv("[ IMPORT FILE ]", T.FG);
+        TextView im = tv("IMPORT FILE", 0xFF00E676);
         im.setId(4);
         im.setPadding(0, dp(16), 0, dp(8));
         im.setOnClickListener(this);
@@ -92,7 +92,6 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         TextView x = new TextView(this);
         x.setText(s);
         x.setTextColor(c);
-        x.setTypeface(T.F);
         return x;
     }
 
@@ -103,7 +102,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
 
     void fill() {
         int u = B.updates(p, d);
-        br.setText("[ BROWSE PROFILES" + (u > 0 ? " (" + u + (u == 1 ? " update)" : " updates)") : "") + " ]");
+        br.setText("BROWSE PROFILES" + (u > 0 ? " (" + u + (u == 1 ? " update)" : " updates)") : ""));
         ls.removeAllViews();
         String cur = p.getString("pf", "");
         row("Off - normal counter", "", cur.isEmpty(), false);
@@ -127,7 +126,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
     void row(String label, String key, boolean on, boolean full) {
         LinearLayout r = new LinearLayout(this);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        TextView a = tv((on ? "> " : "  ") + label, T.FG);
+        TextView a = tv((on ? "\u2713 " : "") + label, 0xFFFFFFFF);
         a.setTextSize(18);
         a.setPadding(0, dp(16), dp(8), dp(16));
         a.setId(1);
@@ -136,19 +135,20 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         if (full) a.setOnLongClickListener(this); // hold: description, author, version
         r.addView(a, new LinearLayout.LayoutParams(0, -2, 1f));
         if (full) {
-            TextView e = tv("[export]", T.DIM);
+            TextView e = tv("export", 0xFF888888);
             e.setPadding(dp(12), dp(16), dp(12), dp(16));
             e.setId(2);
             e.setTag(key);
             e.setOnClickListener(this);
             r.addView(e);
-            TextView sc = tv("[shortcut]", T.DIM);
+            TextView sc = tv("shortcut", 0xFF888888);
             sc.setPadding(dp(12), dp(16), dp(12), dp(16));
             sc.setId(6);
             sc.setTag(key);
             sc.setOnClickListener(this);
             r.addView(sc);
-            TextView x = tv("[del]", T.BAD);
+            TextView x = tv("\u2715", 0xFFFF5252);
+            x.setTextSize(22);
             x.setPadding(dp(16), dp(12), dp(16), dp(12));
             x.setId(3);
             x.setTag(key);
