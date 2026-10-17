@@ -32,6 +32,7 @@ import android.util.TypedValue;
 import android.graphics.drawable.GradientDrawable;
 import android.view.ContextThemeWrapper;
 import android.view.GestureDetector;
+import android.view.HapticFeedbackConstants;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -630,20 +631,23 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // default rectangle of element i: 0 menu, 1 reset, 2 -1, 3 view, 4 dhikr text, 5 counter,
     // 6 footer, 7 Do Not Disturb warning, 8 slide title. Top to bottom: top bar, dhikr text with the title
     // line, counter (20% of the screen), warning, bottom buttons, footer.
+    // default layout as fractions of the screen: left, top, right, bottom of every element
+    static final float[][] DF = {
+        {0, 0, .2222f, .0526f},           // menu
+        {.7889f, 0, 1, .0526f},           // reset
+        {0, .9047f, .1611f, .9342f},      // -1
+        {.6083f, .9047f, 1, .9547f},      // view
+        {0, .1064f, 1, .7440f},           // dhikr text
+        {0, .7466f, 1, .9017f},           // counter
+        {.2222f, .9535f, .7778f, .9897f}, // footer
+        {0, .0560f, 1, .1064f},           // Do Not Disturb warning
+        {0, .9342f, 1, .9756f}};          // title
+
     RectF def(int i) {
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        float W = dm.widthPixels, H = dm.heightPixels, c0 = H - dp(124) - H * .2f;
-        switch (i) {
-            case 0: return new RectF(0, 0, tw(0), dp(41));
-            case 1: return new RectF(W - tw(1), 0, W, dp(41));
-            case 2: return new RectF(0, H - dp(86), tw(2), H - dp(45));
-            case 3: return new RectF(W - tw(3), H - dp(86), W, H - dp(45));
-            case 4: return new RectF(0, dp(44), W, c0 - dp(36));
-            case 5: return new RectF(0, c0, W, H - dp(124));
-            case 6: return new RectF(W / 2 - dp(100), H - dp(36), W / 2 + dp(100), H - dp(8));
-            case 7: return new RectF(0, H - dp(124), W, H - dp(88));
-            default: return new RectF(0, c0 - dp(36), W, c0);
-        }
+        float W = dm.widthPixels, H = dm.heightPixels;
+        float[] f = DF[Math.min(i, DF.length - 1)];
+        return new RectF(f[0] * W, f[1] * H, f[2] * W, f[3] * H);
     }
 
     // saved rectangle of element i (stored as fractions of the screen), else its default
@@ -728,6 +732,31 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         float W = dm.widthPixels, H = dm.heightPixels;
         RectF r = er[i];
         p.edit().putString("el" + i, r.left / W + "," + r.top / H + "," + r.right / W + "," + r.bottom / H).apply();
+        shown = -2;
+        draw();
+    }
+
+    // all the element rectangles in one array, and back (for undo)
+    float[] snapshot() {
+        float[] a = new float[er.length * 4];
+        for (int i = 0; i < er.length; i++) {
+            a[4 * i] = er[i].left;
+            a[4 * i + 1] = er[i].top;
+            a[4 * i + 2] = er[i].right;
+            a[4 * i + 3] = er[i].bottom;
+        }
+        return a;
+    }
+
+    void restore(float[] a) {
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        float W = dm.widthPixels, H = dm.heightPixels;
+        SharedPreferences.Editor e = p.edit();
+        for (int i = 0; i < er.length; i++) {
+            er[i].set(a[4 * i], a[4 * i + 1], a[4 * i + 2], a[4 * i + 3]);
+            e.putString("el" + i, a[4 * i] / W + "," + a[4 * i + 1] / H + "," + a[4 * i + 2] / W + "," + a[4 * i + 3] / H);
+        }
+        e.apply();
         shown = -2;
         draw();
     }
@@ -1804,9 +1833,13 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         final ScaleGestureDetector sd;
         int sel = -1, mode, sides; // mode: 0 idle, 1 move, 2 resize, 3 pinch; sides: 1 left, 2 top, 4 right, 8 bottom
-        float lx, ly;
+        float lx, ly, tick;
         boolean moved, undo;
         final Runnable hold; // the undo button was held: reset the layout
+        final RectF raw = new RectF(); // where the finger puts the selected element, before it snaps
+        final ArrayList<float[]> hist = new ArrayList<>(); // the layouts before every change: undo
+        float[] snap; // the layout when the current gesture began
+        final ArrayList<Float> gx = new ArrayList<>(), gy = new ArrayList<>(); // guide lines shown while something snaps
 
         Ed(M m) {
             super(m);
@@ -1815,10 +1848,17 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             hold = () -> {
                 undo = false;
                 sel = -1;
+                push(m.snapshot());
                 m.resetLayout();
                 invalidate();
-                Toast.makeText(m, "Layout reset", Toast.LENGTH_SHORT).show();
+                Toast.makeText(m, "Layout reset (tap undo to bring it back)", Toast.LENGTH_SHORT).show();
             };
+        }
+
+        void push(float[] a) {
+            if (a == null) return;
+            hist.add(a);
+            if (hist.size() > 50) hist.remove(0);
         }
 
         // the smallest element under the finger
@@ -1847,6 +1887,43 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             return s;
         }
 
+        // the lines (x or y) things snap to: screen edges and centre, edges and centres of the other elements
+        float[] gl(boolean x) {
+            float[] a = new float[3 + 3 * (m.er.length - 1)];
+            float W = getWidth(), H = getHeight();
+            int n = 0;
+            a[n++] = 0;
+            a[n++] = (x ? W : H) / 2;
+            a[n++] = x ? W : H;
+            for (int i = 0; i < m.er.length; i++) {
+                if (i == sel) continue;
+                RectF r = m.er[i];
+                a[n++] = x ? r.left : r.top;
+                a[n++] = x ? r.centerX() : r.centerY();
+                a[n++] = x ? r.right : r.bottom;
+            }
+            return a;
+        }
+
+        // how far to move so that the nearest of the positions f lands on a line, if one is within 8dp
+        float shift(float[] f, boolean x) {
+            float lim = m.dp(8), sh = 0;
+            for (float q : gl(x))
+                for (float v : f)
+                    if (Math.abs(q - v) < lim) {
+                        lim = Math.abs(q - v);
+                        sh = q - v;
+                    }
+            return sh;
+        }
+
+        // remembers the lines that the positions f sit on, to draw them
+        void mark(float[] f, boolean x) {
+            for (float q : gl(x))
+                for (float v : f)
+                    if (Math.abs(q - v) < 1) (x ? gx : gy).add(q);
+        }
+
         @Override public boolean onTouchEvent(MotionEvent e) {
             sd.onTouchEvent(e);
             float x = e.getX(), y = e.getY();
@@ -1856,12 +1933,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     ly = y;
                     mode = 0;
                     moved = false;
+                    gx.clear();
+                    gy.clear();
                     float cx = getWidth() / 2f, cy = m.dp(26), rad = m.dp(24);
                     if (Math.hypot(x - (cx + m.dp(30)), y - cy) < rad) { // check: leave the editor
                         m.exitEdit();
                         return true;
                     }
-                    if (Math.hypot(x - (cx - m.dp(30)), y - cy) < rad) { // undo: reset on hold
+                    if (Math.hypot(x - (cx - m.dp(30)), y - cy) < rad) { // undo: tap = a step back, hold = reset
                         undo = true;
                         postDelayed(hold, ViewConfiguration.getLongPressTimeout());
                         return true;
@@ -1875,6 +1954,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                         sel = pick(x, y);
                         mode = sel >= 0 ? 1 : 0;
                     }
+                    if (mode != 0) {
+                        snap = m.snapshot();
+                        raw.set(m.er[sel]);
+                    }
                     invalidate();
                     return true;
                 case MotionEvent.ACTION_MOVE: {
@@ -1883,15 +1966,31 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     lx = x;
                     ly = y;
                     RectF r = m.er[sel];
+                    gx.clear();
+                    gy.clear();
                     if (mode == 1) {
-                        r.offset(dx, dy);
+                        raw.offset(dx, dy);
+                        r.set(raw);
+                        m.fix(sel, true);
+                        r.offset(shift(new float[]{r.left, r.centerX(), r.right}, true),
+                                shift(new float[]{r.top, r.centerY(), r.bottom}, false));
                     } else {
-                        if ((sides & 1) != 0) r.left += dx;
-                        if ((sides & 2) != 0) r.top += dy;
-                        if ((sides & 4) != 0) r.right += dx;
-                        if ((sides & 8) != 0) r.bottom += dy;
+                        if ((sides & 1) != 0) raw.left += dx;
+                        if ((sides & 2) != 0) raw.top += dy;
+                        if ((sides & 4) != 0) raw.right += dx;
+                        if ((sides & 8) != 0) raw.bottom += dy;
+                        r.set(raw);
+                        m.fix(sel, false);
+                        if ((sides & 1) != 0) r.left += shift(new float[]{r.left}, true);
+                        if ((sides & 4) != 0) r.right += shift(new float[]{r.right}, true);
+                        if ((sides & 2) != 0) r.top += shift(new float[]{r.top}, false);
+                        if ((sides & 8) != 0) r.bottom += shift(new float[]{r.bottom}, false);
                     }
-                    m.fix(sel, mode == 1);
+                    mark(new float[]{r.left, r.centerX(), r.right}, true);
+                    mark(new float[]{r.top, r.centerY(), r.bottom}, false);
+                    float t = (gx.isEmpty() ? 0 : gx.get(0)) + 4000 * (gy.isEmpty() ? 0 : gy.get(0));
+                    if (t != 0 && t != tick) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); // a snap
+                    tick = t;
                     m.place1(sel);
                     moved = true;
                     invalidate();
@@ -1899,15 +1998,28 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 }
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
-                    if (undo) { // released before the hold was over
+                    if (undo) {
                         removeCallbacks(hold);
                         undo = false;
-                        Toast.makeText(m, "Hold the undo button to reset the layout", Toast.LENGTH_SHORT).show();
+                        if (hist.isEmpty()) {
+                            Toast.makeText(m, "Nothing to undo (hold the button to reset the layout)", Toast.LENGTH_SHORT).show();
+                        } else {
+                            sel = -1;
+                            m.restore(hist.remove(hist.size() - 1));
+                            invalidate();
+                        }
                         return true;
                     }
-                    if (moved && sel >= 0 && mode != 3) m.save(sel);
+                    if (moved && sel >= 0 && mode != 3) {
+                        m.save(sel);
+                        push(snap);
+                    }
+                    snap = null;
                     mode = 0;
                     moved = false;
+                    gx.clear();
+                    gy.clear();
+                    tick = 0;
                     invalidate();
                     return true;
                 default:
@@ -1918,6 +2030,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         @Override public boolean onScaleBegin(ScaleGestureDetector d) {
             if (sel < 0) return false;
             mode = 3;
+            if (snap == null) snap = m.snapshot();
             return true;
         }
 
@@ -1926,6 +2039,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             float s = d.getScaleFactor();
             r.inset(-r.width() * (s - 1) / 2, -r.height() * (s - 1) / 2);
             m.fix(sel, false);
+            raw.set(r);
             m.place1(sel);
             moved = true;
             invalidate();
@@ -1933,7 +2047,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
 
         @Override public void onScaleEnd(ScaleGestureDetector d) {
-            if (moved && sel >= 0) m.save(sel);
+            if (moved && sel >= 0) {
+                m.save(sel);
+                push(snap);
+            }
+            snap = null;
             mode = 0;
             moved = false;
         }
@@ -1944,6 +2062,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             p.setStrokeWidth(u);
             p.setColor((m.th.fg & 0xFFFFFF) | 0x88000000);
             for (int i = 0; i < m.er.length; i++) if (i != sel) c.drawRect(m.er[i], p);
+            p.setColor(m.th.warn); // the guide lines of a snap
+            for (float q : gx) c.drawLine(q, 0, q, getHeight(), p);
+            for (float q : gy) c.drawLine(0, q, getWidth(), q, p);
             if (sel >= 0) {
                 RectF r = m.er[sel];
                 p.setColor(m.th.ac);
@@ -1969,8 +2090,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             c.drawText("\u21BA", cx - 30 * u, cy + 8 * u, p);
             p.setColor(m.th.dim);
             p.setTextSize(12 * m.spx);
-            c.drawText("tap an element, drag to move, pinch to scale", cx, 62 * u, p);
-            c.drawText("drag an edge or corner to resize, hold undo to reset", cx, 78 * u, p);
+            c.drawText("tap an element, drag to move, pinch to scale, it snaps to guides", cx, 62 * u, p);
+            c.drawText("drag an edge or corner to resize; undo: tap = step back, hold = reset", cx, 78 * u, p);
         }
     }
 
