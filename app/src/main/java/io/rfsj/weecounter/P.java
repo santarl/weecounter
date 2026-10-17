@@ -174,7 +174,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         }
         if (v.getId() != 3) return false;
         d.edit().remove(k).apply();
-        SharedPreferences.Editor e = p.edit().remove("g:" + k).remove("in:" + k);
+        SharedPreferences.Editor e = p.edit().remove("g:" + k).remove("in:" + k).remove("rp:" + k);
         if (k.equals(p.getString("pf", ""))) e.putString("pf", "");
         e.apply();
         fill();

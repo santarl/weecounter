@@ -16,8 +16,12 @@ import android.os.SystemClock;
 import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.text.Editable;
+import android.text.InputType;
 import android.text.StaticLayout;
 import android.text.TextPaint;
+import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.style.RelativeSizeSpan;
@@ -30,11 +34,16 @@ import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.WindowManager;
+import android.widget.ArrayAdapter;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.PopupMenu;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Random;
@@ -119,7 +128,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // v = views of each slide, cu = cumulative counts (cu[i] = taps before slide i),
     // tot = all taps.
     static class Pr {
-        int[] c, cu;
+        int[] c, cu, c0; // c0: the repeats written in the profile, c: with your own (see ov)
         String[] ti; // slide titles, for the slide list
         boolean[] ex; // slide has its own "# Title" line (only those show the title element)
         Vw[][] v;
@@ -143,6 +152,23 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             if (l.startsWith("@" + k + " ")) b.append(b.length() > 0 ? "\n" : "").append(l.substring(k.length() + 2).trim());
         }
         return b.toString();
+    }
+
+    // the counts of the profile with your own repeat of some slides (setting rp:<profile>, one
+    // number per slide separated by commas, empty = the profile's own)
+    static void ov(Pr r, String s) {
+        String[] a = s.split(",", -1);
+        for (int i = 0; i < r.c.length; i++) {
+            int v = 0;
+            try {
+                v = Integer.parseInt(a[i].trim());
+            } catch (Exception e) {
+                // none
+            }
+            r.c[i] = v > 0 && v <= 100000 ? v : r.c0[i];
+            r.cu[i + 1] = r.cu[i] + r.c[i];
+        }
+        r.tot = r.cu[r.c.length];
     }
 
     // description, author and version of a profile
@@ -199,6 +225,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             r.v[i] = vs.get(i);
             r.cu[i + 1] = r.cu[i] + r.c[i];
         }
+        r.c0 = r.c.clone();
         r.tot = r.cu[k];
         return r;
     }
@@ -871,6 +898,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             if (pr == null) {
                 pf = "";
             } else {
+                ov(pr, p.getString("rp:" + pf, ""));
                 if (!p.getBoolean("in:" + pf, false) && !hd(tx, "desc").isEmpty()) { // first open: the description
                     p.edit().putBoolean("in:" + pf, true).apply();
                     about(this, pf, tx);
@@ -1015,27 +1043,172 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     // hold on the footer (slide x of y): list of the slides to jump to; the title is the profile name,
     // tap it to pick another profile
+    // normalised text for searching: lower case, without accents or Arabic vowel marks
+    static String nz(String s) {
+        return Normalizer.normalize(s, Normalizer.Form.NFD).replaceAll("\\p{M}", "").toLowerCase();
+    }
+
+    // approximate substring match of q in t (both normalised): -1 if q is further away than a
+    // typo or two (none for short words), else 1000 minus 300 per mistake
+    static int fz(String q, String t) {
+        int n = q.length(), tol = n < 4 ? 0 : n < 8 ? 1 : 2, best = n;
+        int[] r = new int[n + 1];
+        for (int i = 0; i <= n; i++) r[i] = i;
+        for (int j = 0; j < t.length(); j++) {
+            int prev = 0;
+            for (int i = 1; i <= n; i++) {
+                int x = r[i];
+                r[i] = Math.min(prev + (q.charAt(i - 1) == t.charAt(j) ? 0 : 1), Math.min(x, r[i - 1]) + 1);
+                prev = x;
+            }
+            best = Math.min(best, r[n]);
+        }
+        return best > tol ? -1 : 1000 - 300 * best;
+    }
+
+    // slide list with a search box: every word must be found, in the title (ranked first) or
+    // in the text of the slide
     void picker() {
         if (pr == null) return;
-        int at = slide(), k = pr.c.length;
-        String[] it = new String[k];
-        for (int i = 0; i < k; i++)
+        final int at = slide(), k = pr.c.length;
+        final String[] it = new String[k], nt = new String[k], nc = new String[k];
+        for (int i = 0; i < k; i++) {
             it[i] = (i == at ? "\u25B6 " : "    ") + (i + 1) + ". " + pr.ti[i]
                     + (pr.c[i] > 1 ? "  " + cn[i] + "/" + pr.c[i] : cn[i] > 0 ? "  \u2713" : "");
+            StringBuilder b = new StringBuilder();
+            for (Vw w : pr.v[i]) for (String x : w.t) b.append(x).append(' ');
+            nt[i] = nz(pr.ti[i]);
+            nc[i] = nz(b.toString());
+        }
+        final EditText q = new EditText(this);
+        q.setSingleLine();
+        q.setHint("Search title and text");
+        q.setHintTextColor(0xFF888888);
+        q.setTextColor(0xFFFFFFFF);
+        final ListView lv = new ListView(this);
+        final ArrayAdapter<String> ad = new ArrayAdapter<>(this, android.R.layout.select_dialog_item);
+        final ArrayList<Integer> ix = new ArrayList<>(); // the slides shown, best first
+        final Runnable fl = () -> {
+            String qs = nz(q.getText().toString()).trim();
+            String[] ts = qs.isEmpty() ? new String[0] : qs.split("\\s+");
+            final int[] sc = new int[k];
+            ix.clear();
+            for (int i = 0; i < k; i++) {
+                int sum = 0;
+                for (String w : ts) {
+                    int m = fz(w, nt[i]);
+                    m = m >= 0 ? m + 5000 : fz(w, nc[i]); // a title match beats any match in the text
+                    if (m < 0) {
+                        sum = -1;
+                        break;
+                    }
+                    sum += m;
+                }
+                sc[i] = sum;
+                if (sum >= 0) ix.add(i);
+            }
+            ix.sort((x, y) -> sc[y] - sc[x]);
+            ad.clear();
+            for (int i : ix) ad.add(it[i]);
+        };
+        lv.setAdapter(ad);
+        fl.run();
+        q.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence x, int s1, int s2, int s3) {
+            }
+
+            @Override public void onTextChanged(CharSequence x, int s1, int s2, int s3) {
+                fl.run();
+            }
+
+            @Override public void afterTextChanged(Editable x) {
+            }
+        });
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.VERTICAL);
+        l.setPadding(dp(16), 0, dp(16), 0);
+        l.addView(q);
+        l.addView(lv, new LinearLayout.LayoutParams(-1, getResources().getDisplayMetrics().heightPixels / 2));
         TextView h = new TextView(this);
         h.setText(pf);
         h.setTextSize(18);
         h.setTextColor(0xFFFFFFFF);
         h.setPadding(dp(24), dp(20), dp(24), dp(8));
-        final AlertDialog d = new AlertDialog.Builder(this).setCustomTitle(h).setItems(it, (dg, i) -> {
+        final AlertDialog d = new AlertDialog.Builder(this).setCustomTitle(h).setView(l).create();
+        lv.setOnItemClickListener((pa, pv, pos, pid) -> {
+            d.dismiss();
             land();
-            cur = i;
+            cur = ix.get(pos);
             cf.t0 = 0;
             z(vt);
             draw();
-        }).create();
+        });
         d.show();
-        d.getListView().setSelection(Math.max(0, at - 2));
+        lv.setSelection(Math.max(0, at - 2));
+    }
+
+    // menu "Slide repeats": a repeat count of your own for every slide of this profile (empty =
+    // the profile's own), kept per profile
+    void repeats() {
+        if (pr == null) return;
+        final int k = pr.c.length;
+        final EditText[] ed = new EditText[k];
+        String[] sv = p.getString("rp:" + pf, "").split(",", -1);
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.VERTICAL);
+        l.setPadding(dp(20), dp(4), dp(20), dp(4));
+        TextView hint = new TextView(this);
+        hint.setText("Leave a box empty to keep the repeat of the profile (grey).");
+        hint.setTextColor(0xFF888888);
+        hint.setPadding(0, 0, 0, dp(8));
+        l.addView(hint);
+        for (int i = 0; i < k; i++) {
+            LinearLayout r = new LinearLayout(this);
+            r.setGravity(Gravity.CENTER_VERTICAL);
+            TextView tt = new TextView(this);
+            tt.setText((i + 1) + ". " + pr.ti[i]);
+            tt.setTextColor(0xFFFFFFFF);
+            tt.setSingleLine();
+            tt.setEllipsize(TextUtils.TruncateAt.END);
+            r.addView(tt, new LinearLayout.LayoutParams(0, -2, 1f));
+            ed[i] = new EditText(this);
+            ed[i].setInputType(InputType.TYPE_CLASS_NUMBER);
+            ed[i].setHint("" + pr.c0[i]);
+            ed[i].setHintTextColor(0xFF888888);
+            ed[i].setTextColor(0xFFFFFFFF);
+            ed[i].setGravity(Gravity.CENTER);
+            if (i < sv.length) ed[i].setText(sv[i].trim());
+            r.addView(ed[i], new LinearLayout.LayoutParams(dp(90), -2));
+            l.addView(r);
+        }
+        ScrollView sc = new ScrollView(this);
+        sc.addView(l);
+        new AlertDialog.Builder(this).setTitle("Slide repeats").setView(sc)
+                .setPositiveButton("Save", (dg, w) -> {
+                    StringBuilder b = new StringBuilder();
+                    boolean any = false;
+                    for (int i = 0; i < k; i++) {
+                        int v = 0;
+                        try {
+                            v = Integer.parseInt(ed[i].getText().toString().trim());
+                        } catch (Exception x) {
+                            // empty or not a number: the profile's own
+                        }
+                        boolean own = v < 1 || v > 100000 || v == pr.c0[i];
+                        any |= !own;
+                        b.append(i > 0 ? "," : "").append(own ? "" : "" + v);
+                    }
+                    setRepeats(any ? b.toString() : "");
+                })
+                .setNeutralButton("Reset all", (dg, w) -> setRepeats(""))
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    void setRepeats(String csv) {
+        if (csv.isEmpty()) p.edit().remove("rp:" + pf).apply();
+        else p.edit().putString("rp:" + pf, csv).apply();
+        ov(pr, csv);
+        draw();
     }
 
     // top-left menu
@@ -1044,9 +1217,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         m.getMenu().add(0, 1, 0, "Settings");
         m.getMenu().add(0, 2, 1, "Profiles");
         m.getMenu().add(0, 3, 2, "Edit layout");
+        if (pr != null) m.getMenu().add(0, 4, 3, "Slide repeats");
         m.setOnMenuItemClickListener(i -> {
             int id = i.getItemId();
             if (id == 3) enterEdit();
+            else if (id == 4) repeats();
             else startActivity(new Intent(this, id == 1 ? S.class : P.class));
             return true;
         });
