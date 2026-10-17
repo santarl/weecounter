@@ -41,7 +41,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
 
     SharedPreferences p;
     EditText[] e = new EditText[M.D.length];
-    CheckBox aw, dk, hp, wk;
+    T.K aw, dk, hp, wk;
     TextView df, dd, dx, vv, vz, dr, rl, ver, lnk, chk, res;
     NotificationManager nm;
     int dm, vm;
@@ -62,46 +62,44 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         } catch (Exception ex) {
             // keep the question mark
         }
-        ver = tv("weecounter " + vn + (test() ? " (test build)" : ""), 0xFFFFFFFF, 0);
+        ver = tv("weecounter " + vn + (test() ? " (test build)" : ""), T.FG, 0);
         ver.setTextSize(18);
         l.addView(ver);
-        lnk = tv("github.com/" + REPO, 0xFF00E676, m / 4);
+        lnk = tv("github.com/" + REPO, T.FG, m / 4);
         lnk.setOnClickListener(this);
         l.addView(lnk);
-        chk = tv("CHECK FOR UPDATE", 0xFF00E676, m);
+        chk = tv("[ CHECK FOR UPDATE ]", T.FG, m);
         chk.setOnClickListener(this);
         l.addView(chk);
-        res = tv("", 0xFF888888, 0);
+        res = tv("", T.DIM, 0);
         l.addView(res);
 
-        dd = tv("", 0xFFFFFFFF, m * 2);
+        dd = tv("", T.FG, m * 2);
         dd.setOnClickListener(this);
         l.addView(dd);
-        dx = tv("", 0xFF888888, m / 4);
+        dx = tv("", T.DIM, m / 4);
         l.addView(dx);
         hp = cb("Vibrate as touch feedback");
         l.addView(hp);
         l.addView(tv("Only turn this on if Do Not Disturb mutes the vibrations on your phone. "
                 + "They then follow your phone's touch feedback setting, so turning that off silences them.",
-                0xFF888888, 0));
-        vv = tv("", 0xFFFFFFFF, m);
+                T.DIM, 0));
+        vv = tv("", T.FG, m);
         vv.setOnClickListener(this);
         l.addView(vv);
-        vz = tv("", 0xFF888888, m / 4);
+        vz = tv("", T.DIM, m / 4);
         l.addView(vz);
-        dr = tv("", 0xFFFFFFFF, m);
+        dr = tv("", T.FG, m);
         dr.setOnClickListener(this);
         l.addView(dr);
         l.addView(tv("Count a list of dhikr slides one after another, shown above the number. "
-                + "Pick, import, export or delete profiles there.", 0xFF888888, m / 4));
+                + "Pick, import, export or delete profiles there.", T.DIM, m / 4));
         for (int i = 0; i < e.length; i++) {
             if (i == 6)
                 l.addView(tv("Vibration notation: milliseconds, alternating buzz and pause. "
-                        + "\"40 60 40\" = buzz 40, pause 60, buzz 40. Empty = off.", 0xFF888888, m));
-            l.addView(tv(M.D[i][2], 0xFFFFFFFF, m));
-            e[i] = new EditText(this);
-            e[i].setTextColor(0xFFFFFFFF);
-            e[i].setSingleLine();
+                        + "\"40 60 40\" = buzz 40, pause 60, buzz 40. Empty = off.", T.DIM, m));
+            l.addView(tv(M.D[i][2], T.FG, m));
+            e[i] = T.ed(this);
             if (i < 5) e[i].setInputType(2); // numbers only
             l.addView(e[i]);
         }
@@ -112,16 +110,16 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         wk = cb("Check for new profiles weekly");
         l.addView(wk);
 
-        df = tv("RESET TO DEFAULTS", 0xFFFF5252, m);
+        df = tv("[ RESET TO DEFAULTS ]", T.BAD, m);
         df.setOnClickListener(this);
         df.setOnLongClickListener(this);
         l.addView(df);
-        l.addView(tv("Hold to restore the defaults. Also forgets the text sizes you set by pinching on dhikr slides.", 0xFF888888, 0));
-        rl = tv("RESET LAYOUT", 0xFFFF5252, m);
+        l.addView(tv("Hold to restore the defaults. Also forgets the text sizes you set by pinching on dhikr slides.", T.DIM, 0));
+        rl = tv("[ RESET LAYOUT ]", T.BAD, m);
         rl.setOnClickListener(this);
         rl.setOnLongClickListener(this);
         l.addView(rl);
-        l.addView(tv("Hold to put the menu, buttons, dhikr text, title, counter and footer back at their default places.", 0xFF888888, 0));
+        l.addView(tv("Hold to put the menu, buttons, dhikr text, title, counter and footer back at their default places.", T.DIM, 0));
 
         ScrollView s = new ScrollView(this);
         s.setBackgroundColor(0xFF000000);
@@ -131,19 +129,16 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         fill(false);
     }
 
-    // white tick box so it stays visible on black when checked
-    CheckBox cb(String s) {
-        CheckBox c = new CheckBox(this);
-        c.setText(s);
-        c.setTextColor(0xFFFFFFFF);
-        c.setButtonTintList(ColorStateList.valueOf(0xFFFFFFFF));
-        return c;
+    // "[x] label" box
+    T.K cb(String s) {
+        return new T.K(this, s);
     }
 
     TextView tv(String s, int c, int m) {
         TextView x = new TextView(this);
         x.setText(s);
         x.setTextColor(c);
+        x.setTypeface(T.F);
         x.setPadding(0, m, 0, 0);
         return x;
     }
@@ -287,9 +282,8 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         res.setText(r[0]);
         if (r[1] == null) return;
         final String u = r[2];
-        new AlertDialog.Builder(this).setTitle("Update available").setMessage(r[1])
-                .setPositiveButton(test() ? "Open" : "Download", (d, w) -> view(u))
-                .setNegativeButton("Later", null).show();
+        new T.D(this, "update available").add(T.tv(this, r[1], T.FG, 14))
+                .btn(test() ? "OPEN" : "DOWNLOAD", true, () -> view(u)).btn("LATER", true, null).show();
     }
 
     @Override public boolean onLongClick(View x) {

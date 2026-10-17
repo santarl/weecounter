@@ -110,7 +110,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     boolean rb;      // the restart is about to happen
     int shx, shy;    // current pixel-shift offset in px
     Runnable pend;   // slide change waiting for the slide-out animation
-    Pd ind;          // view dots at the left edge
+    Pd ind;          // view dots, just left of the counter
     ScaleGestureDetector sd; // pinch to resize the dhikr text of a slide / view
     float zs;        // text scale while pinching
     float spx;       // px per sp
@@ -158,16 +158,26 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         return b.toString();
     }
 
-    // the counts of the profile with your own repeat of some slides (setting rp:<profile>, one
-    // number per slide separated by commas, empty = the profile's own)
+    // the counts of the profile with your own repeats (setting rp:<profile>: "*N" = N for every
+    // slide, else one number per slide separated by commas, empty = the profile's own)
     static void ov(Pr r, String s) {
-        String[] a = s.split(",", -1);
-        for (int i = 0; i < r.c.length; i++) {
-            int v = 0;
+        int all = 0;
+        if (s.startsWith("*")) {
             try {
-                v = Integer.parseInt(a[i].trim());
+                all = Integer.parseInt(s.substring(1).trim());
             } catch (Exception e) {
                 // none
+            }
+        }
+        String[] a = s.split(",", -1);
+        for (int i = 0; i < r.c.length; i++) {
+            int v = all;
+            if (all <= 0) {
+                try {
+                    v = Integer.parseInt(a[i].trim());
+                } catch (Exception e) {
+                    // none
+                }
             }
             r.c[i] = v > 0 && v <= 100000 ? v : r.c0[i];
             r.cu[i + 1] = r.cu[i] + r.c[i];
@@ -179,8 +189,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     static void about(Activity a, String name, String tx) {
         String au = hd(tx, "author"), v = hd(tx, "version"), ds = hd(tx, "desc");
         String m = (au.isEmpty() ? "" : "By " + au) + (v.isEmpty() ? "" : (au.isEmpty() ? "" : "  -  ") + "version " + v);
-        new AlertDialog.Builder(a).setTitle(name).setMessage(m + (m.isEmpty() ? "" : "\n\n")
-                + (ds.isEmpty() ? "No description" : ds)).setPositiveButton("OK", null).show();
+        new T.D(a, name).add(T.tv(a, m + (m.isEmpty() ? "" : "\n\n") + (ds.isEmpty() ? "No description" : ds), T.FG, 14))
+                .btn("OK", true, null).show();
     }
 
     static Pr parse(String s) {
@@ -407,7 +417,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         vw.setOnClickListener(this);
         pg = new TextView(this);          // status footer: slide progress
         pg.setTextColor(0xFF888888);
-        pg.setOnClickListener(this);      // a tap still counts, hold opens the slide list
+        pg.setOnClickListener(this);      // a tap still counts, hold toggles the counting view like anywhere else
         pg.setOnLongClickListener(this);
         f.addView(pg, new FrameLayout.LayoutParams(-2, -2));
         dt = new TextView(this);          // Do Not Disturb warning (not clickable)
@@ -420,6 +430,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
         ev = new View[]{se, rs, dn, vw, dl, bot, pg, dt, ttl};
         ui = new View[]{lay, dt, se, rs, dn, vw, ind, pg, ttl};
+        for (TextView x : new TextView[]{se, rs, dn, vw, dt, pg, ttl, t}) x.setTypeface(T.F); // terminal look
 
         ed = new Ed(this);
         ed.setVisibility(View.GONE);
@@ -679,10 +690,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, sz);
         }
         x.setLayoutParams(lp);
-        if (i == 4) { // the view dots follow the dhikr text
+        if (i == 5) { // the view dots sit just left of the counter, centred on it
             FrameLayout.LayoutParams ip = (FrameLayout.LayoutParams) ind.getLayoutParams();
-            ip.topMargin = (int) r.top;
-            ip.height = (int) r.height();
+            ip.leftMargin = (int) Math.max(0, r.left - ip.width);
+            ip.topMargin = (int) Math.max(0, r.centerY() - ip.height / 2f);
             ind.setLayoutParams(ip);
         }
     }
@@ -1090,27 +1101,28 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         return best > tol ? -1 : 1000 - 300 * best;
     }
 
-    // slide list with a search box: every word must be found, in the title (ranked first) or
-    // in the text of the slide
-    void picker() {
+    // menu "Goto": a search box and the slide list (every word must be found, in the title first,
+    // else in the text of the slide); tap a slide to go there. ADVANCED: the repeats.
+    void goTo() {
         if (pr == null) return;
         final int at = slide(), k = pr.c.length;
         final String[] it = new String[k], nt = new String[k], nc = new String[k];
         for (int i = 0; i < k; i++) {
-            it[i] = (i == at ? "\u25B6 " : "    ") + (i + 1) + ". " + pr.ti[i]
-                    + (pr.c[i] > 1 ? "  " + cn[i] + "/" + pr.c[i] : cn[i] > 0 ? "  \u2713" : "");
+            it[i] = (i == at ? "> " : "  ") + (i + 1) + ". " + pr.ti[i]
+                    + (pr.c[i] > 1 ? "  " + cn[i] + "/" + pr.c[i] : cn[i] > 0 ? "  [x]" : "");
             StringBuilder b = new StringBuilder();
             for (Vw w : pr.v[i]) for (String x : w.t) b.append(x).append(' ');
             nt[i] = nz(pr.ti[i]);
             nc[i] = nz(b.toString());
         }
-        final EditText q = new EditText(this);
-        q.setSingleLine();
-        q.setHint("Search title and text");
-        q.setHintTextColor(0xFF888888);
-        q.setTextColor(0xFFFFFFFF);
-        final ListView lv = new ListView(this);
-        final ArrayAdapter<String> ad = new ArrayAdapter<>(this, android.R.layout.select_dialog_item);
+        final T.D d = new T.D(this, "goto: " + pf);
+        final EditText q = T.ed(this);
+        q.setHint("search");
+        final LinearLayout ls = new LinearLayout(this);
+        ls.setOrientation(LinearLayout.VERTICAL);
+        final ScrollView sv = new ScrollView(this);
+        sv.addView(ls);
+        final View[] cr = new View[1]; // the row of the current slide
         final ArrayList<Integer> ix = new ArrayList<>(); // the slides shown, best first
         final Runnable fl = () -> {
             String qs = nz(q.getText().toString()).trim();
@@ -1132,10 +1144,28 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 if (sum >= 0) ix.add(i);
             }
             ix.sort((x, y) -> sc[y] - sc[x]);
-            ad.clear();
-            for (int i : ix) ad.add(it[i]);
+            ls.removeAllViews();
+            cr[0] = null;
+            for (int i : ix) {
+                final int s = i;
+                TextView r = T.tv(this, it[i], i == at ? 0xFF000000 : T.FG, 14);
+                if (i == at) { // the current slide: inverse video
+                    r.setBackgroundColor(T.FG);
+                    cr[0] = r;
+                }
+                r.setPadding(dp(4), dp(8), dp(4), dp(8));
+                r.setOnClickListener(v -> {
+                    d.dismiss();
+                    land();
+                    cur = s;
+                    cf.t0 = 0;
+                    z(vt);
+                    draw();
+                });
+                ls.addView(r);
+            }
+            if (ix.isEmpty()) ls.addView(T.tv(this, "no match", T.DIM, 14));
         };
-        lv.setAdapter(ad);
         fl.run();
         q.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence x, int s1, int s2, int s3) {
@@ -1148,84 +1178,84 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             @Override public void afterTextChanged(Editable x) {
             }
         });
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        l.setPadding(dp(16), 0, dp(16), 0);
-        l.addView(q);
-        l.addView(lv, new LinearLayout.LayoutParams(-1, getResources().getDisplayMetrics().heightPixels / 2));
-        TextView h = new TextView(this);
-        h.setText(pf);
-        h.setTextSize(18);
-        h.setTextColor(0xFFFFFFFF);
-        h.setPadding(dp(24), dp(20), dp(24), dp(8));
-        final AlertDialog d = new AlertDialog.Builder(this).setCustomTitle(h).setView(l).create();
-        lv.setOnItemClickListener((pa, pv, pos, pid) -> {
-            d.dismiss();
-            land();
-            cur = ix.get(pos);
-            cf.t0 = 0;
-            z(vt);
-            draw();
-        });
-        d.show();
-        lv.setSelection(Math.max(0, at - 2));
+        d.add(q).add(sv, getResources().getDisplayMetrics().heightPixels * 2 / 5)
+                .btn("ADVANCED", true, this::repeats).btn("CLOSE", true, null).show();
+        if (cr[0] != null) sv.post(() -> sv.scrollTo(0, Math.max(0, cr[0].getTop() - dp(60))));
     }
 
-    // menu "Slide repeats": a repeat count of your own for every slide of this profile (empty =
-    // the profile's own), kept per profile
+    static int num(EditText e) {
+        try {
+            return Integer.parseInt(e.getText().toString().trim());
+        } catch (Exception x) {
+            return 0; // empty or not a number
+        }
+    }
+
+    // Goto > ADVANCED: one repeat for all the slides of this profile, or, with "individual", one
+    // for every slide; kept per profile (rp:<profile>, "*N" for all, else one number per slide)
     void repeats() {
         if (pr == null) return;
         final int k = pr.c.length;
+        String sv = p.getString("rp:" + pf, "");
+        boolean one = sv.startsWith("*");
+        String[] a = (one ? "" : sv).split(",", -1);
+        final T.D d = new T.D(this, "repeats: " + pf);
+        final EditText all = T.ed(this);
+        all.setInputType(InputType.TYPE_CLASS_NUMBER);
+        all.setHint("as in the profile");
+        if (one) all.setText(sv.substring(1));
         final EditText[] ed = new EditText[k];
-        String[] sv = p.getString("rp:" + pf, "").split(",", -1);
         LinearLayout l = new LinearLayout(this);
         l.setOrientation(LinearLayout.VERTICAL);
-        l.setPadding(dp(20), dp(4), dp(20), dp(4));
-        TextView hint = new TextView(this);
-        hint.setText("Leave a box empty to keep the repeat of the profile (grey).");
-        hint.setTextColor(0xFF888888);
-        hint.setPadding(0, 0, 0, dp(8));
-        l.addView(hint);
         for (int i = 0; i < k; i++) {
             LinearLayout r = new LinearLayout(this);
             r.setGravity(Gravity.CENTER_VERTICAL);
-            TextView tt = new TextView(this);
-            tt.setText((i + 1) + ". " + pr.ti[i]);
-            tt.setTextColor(0xFFFFFFFF);
+            TextView tt = T.tv(this, (i + 1) + ". " + pr.ti[i], T.FG, 14);
             tt.setSingleLine();
             tt.setEllipsize(TextUtils.TruncateAt.END);
             r.addView(tt, new LinearLayout.LayoutParams(0, -2, 1f));
-            ed[i] = new EditText(this);
+            ed[i] = T.ed(this);
             ed[i].setInputType(InputType.TYPE_CLASS_NUMBER);
             ed[i].setHint("" + pr.c0[i]);
-            ed[i].setHintTextColor(0xFF888888);
-            ed[i].setTextColor(0xFFFFFFFF);
             ed[i].setGravity(Gravity.CENTER);
-            if (i < sv.length) ed[i].setText(sv[i].trim());
+            if (i < a.length) ed[i].setText(a[i].trim());
             r.addView(ed[i], new LinearLayout.LayoutParams(dp(90), -2));
             l.addView(r);
         }
-        ScrollView sc = new ScrollView(this);
+        final ScrollView sc = new ScrollView(this);
         sc.addView(l);
-        new AlertDialog.Builder(this).setTitle("Slide repeats").setView(sc)
-                .setPositiveButton("Save", (dg, w) -> {
-                    StringBuilder b = new StringBuilder();
-                    boolean any = false;
-                    for (int i = 0; i < k; i++) {
-                        int v = 0;
-                        try {
-                            v = Integer.parseInt(ed[i].getText().toString().trim());
-                        } catch (Exception x) {
-                            // empty or not a number: the profile's own
+        sc.setVisibility(!one && !sv.isEmpty() ? View.VISIBLE : View.GONE);
+        final TextView tg = T.tv(this, "", T.FG, 15);
+        final Runnable lbl = () -> tg.setText((sc.getVisibility() == View.VISIBLE ? "[x]" : "[ ]") + " individual repeats");
+        tg.setPadding(0, dp(12), 0, dp(12));
+        tg.setOnClickListener(v -> {
+            boolean on = sc.getVisibility() != View.VISIBLE;
+            sc.setVisibility(on ? View.VISIBLE : View.GONE);
+            if (on) for (EditText x : ed) if (x.getText().length() == 0) x.setText(all.getText()); // start from the common value
+            lbl.run();
+        });
+        lbl.run();
+        d.add(T.tv(this, "same repeat for all slides:", T.DIM, 14)).add(all).add(tg)
+                .add(sc, getResources().getDisplayMetrics().heightPixels * 2 / 5)
+                .btn("SAVE", true, () -> {
+                    String res;
+                    if (sc.getVisibility() == View.VISIBLE) {
+                        StringBuilder b = new StringBuilder();
+                        boolean any = false;
+                        for (int i = 0; i < k; i++) {
+                            int v = num(ed[i]);
+                            boolean own = v < 1 || v > 100000 || v == pr.c0[i];
+                            any |= !own;
+                            b.append(i > 0 ? "," : "").append(own ? "" : "" + v);
                         }
-                        boolean own = v < 1 || v > 100000 || v == pr.c0[i];
-                        any |= !own;
-                        b.append(i > 0 ? "," : "").append(own ? "" : "" + v);
+                        res = any ? b.toString() : "";
+                    } else {
+                        int v = num(all);
+                        res = v < 1 || v > 100000 ? "" : "*" + v;
                     }
-                    setRepeats(any ? b.toString() : "");
+                    setRepeats(res);
                 })
-                .setNeutralButton("Reset all", (dg, w) -> setRepeats(""))
-                .setNegativeButton("Cancel", null).show();
+                .btn("RESET", true, () -> setRepeats("")).btn("CANCEL", true, null).show();
     }
 
     void setRepeats(String csv) {
@@ -1237,23 +1267,16 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     // top-left menu
     void menu(View anchor) {
-        PopupMenu m = new PopupMenu(this, anchor);
-        m.getMenu().add(0, 1, 0, "Settings");
-        m.getMenu().add(0, 2, 1, "Profiles");
-        m.getMenu().add(0, 3, 2, "Edit layout");
-        if (pr != null) m.getMenu().add(0, 4, 3, "Slide repeats");
-        m.setOnMenuItemClickListener(i -> {
-            int id = i.getItemId();
-            if (id == 3) enterEdit();
-            else if (id == 4) repeats();
+        T.menu(this, "menu", pr != null ? new String[]{"Settings", "Profiles", "Edit layout", "Goto"}
+                : new String[]{"Settings", "Profiles", "Edit layout"}, i -> {
+            if (i == 2) enterEdit();
+            else if (i == 3) goTo();
             else {
                 p.edit().putString("pf", pf).apply(); // the screens show this window's profile and may change it
                 chain = true;
-                startActivity(new Intent(this, id == 1 ? S.class : P.class));
+                startActivity(new Intent(this, i == 0 ? S.class : P.class));
             }
-            return true;
         });
-        m.show();
     }
 
     // Pinch (dhikr panel only): resizes the text of the current slide and view; the scale is
@@ -1403,11 +1426,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     @Override public boolean onLongClick(View x) {
-        if (x == pg) {
-            z(vh);
-            picker();
-            return true;
-        }
         if (x == rs) {
             if (pr != null) {
                 cur = 0;
@@ -1832,7 +1850,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             float y = (getHeight() - (n - 1) * pitch) / 2f;
             for (int i = 0; i < n; i++) {
                 p.setColor(i == cur ? col : 0xFF444444);
-                c.drawCircle(10 * u, y + i * pitch, (i == cur ? 4 : 3) * u, p);
+                c.drawCircle(getWidth() - 10 * u, y + i * pitch, (i == cur ? 4 : 3) * u, p);
             }
         }
     }
