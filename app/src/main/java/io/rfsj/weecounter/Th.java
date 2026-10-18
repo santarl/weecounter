@@ -10,11 +10,18 @@ import android.view.View;
 // Colour themes: a palette (name) with a dark and a light mode (or "auto", follows the phone).
 // Stored as "palette,mode" in the setting th (the default) and th:<profile> (a profile's own).
 final class Th {
-    static final String[] NAMES = {"AMOLED", "Ocean", "Rose", "Sand", "Forest", "Violet"};
+    static final String[] NAMES = {"Midnight", "Ocean", "Rose", "Sand", "Forest", "Violet", "Sunset", "Mint", "Teal",
+        "Slate", "Coffee", "Lime", "Graphite", "Orchid"};
     static final String[] MODES = {"dark", "light", "auto"};
     // per palette: its hue (degrees) and how tinted the backgrounds are (0 = pure black / white).
     // Every other colour is worked out from these, see the constructor.
-    static final float[][] H = {{150, 0}, {205, .5f}, {340, .5f}, {42, .5f}, {140, .5f}, {265, .5f}};
+    static final float[][] H = {{150, 0}, {205, .5f}, {340, .5f}, {42, .5f}, {140, .5f}, {265, .5f}, {18, .55f},
+        {160, .4f}, {185, .5f}, {215, .18f}, {24, .45f}, {88, .5f}, {0, .02f}, {300, .5f}};
+
+    // the name of a palette in a mode: pure black has a light mode of its own name
+    static String name(int pal, boolean light) {
+        return pal == 0 && light ? "myeyes" : NAMES[pal];
+    }
 
     int pal, mode, bg, fg, dim, ac, warn, bad;
     boolean light;

@@ -146,7 +146,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
 
     void themeRow() {
         int[] v = Th.parse(p.getString("th", "0,0"));
-        tm.setText("Theme: " + Th.NAMES[v[0]] + ", " + Th.MODES[v[1]] + "  (tap: next palette, hold: dark / light / auto)");
+        tm.setText("Theme: " + Th.name(v[0], new Th(this, v[0] + "," + v[1]).light) + ", " + Th.MODES[v[1]] + "  (tap: next palette, hold: dark / light / auto)");
     }
 
     // white tick box so it stays visible on black when checked

@@ -44,6 +44,7 @@ import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.PopupMenu;
@@ -118,6 +119,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     Th th;           // colours: the theme of this window's profile
     LinearLayout sp; // the theme strip (menu > Theme), null until first opened
     GestureDetector sg; // swipes on the strip
+    HorizontalScrollView hs; // its row of palettes
     ScaleGestureDetector sd; // pinch to resize the dhikr text of a slide / view
     float zs;        // text scale while pinching
     float spx;       // px per sp
@@ -1156,7 +1158,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         if (sp != null) f.removeView(sp);
         sg = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onFling(MotionEvent a, MotionEvent b, float vx, float vy) {
-                if (Math.abs(vx) > 1000 && Math.abs(vx) > 2 * Math.abs(vy)) pick(th.pal + (vx < 0 ? 1 : -1), th.mode);
+                if (a != null && a.getY() > hs.getBottom() && Math.abs(vx) > 1000 && Math.abs(vx) > 2 * Math.abs(vy))
+                    pick(th.pal + (vx < 0 ? 1 : -1), th.mode); // a swipe below the chips (they scroll by themselves)
                 return false;
             }
         });
@@ -1194,12 +1197,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     void stripUi() {
         sp.removeAllViews();
         sp.setBackgroundColor(Th.mix(th.bg, th.fg, .1f));
-        LinearLayout r = new LinearLayout(this); // the palettes, each chip in its own colours
+        hs = new HorizontalScrollView(this); // the palettes, each chip in its own colours
+        hs.setHorizontalScrollBarEnabled(false);
+        LinearLayout r = new LinearLayout(this);
         for (int i = 0; i < Th.NAMES.length; i++) {
             final int k = i;
             Th c = new Th(this, i + "," + th.mode);
             TextView t = new TextView(this);
-            t.setText(Th.NAMES[i]);
+            t.setText(Th.name(i, c.light));
             t.setTextSize(11);
             t.setGravity(Gravity.CENTER);
             t.setTextColor(c.ac);
@@ -1209,11 +1214,13 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             g.setStroke(dp(i == th.pal ? 3 : 1), i == th.pal ? th.fg : th.dim);
             t.setBackground(g);
             t.setOnClickListener(v -> pick(k, th.mode));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(44), 1f);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(76), dp(44));
             lp.setMargins(dp(3), 0, dp(3), 0);
             r.addView(t, lp);
         }
-        sp.addView(r);
+        hs.addView(r);
+        sp.addView(hs);
+        hs.post(() -> hs.scrollTo(Math.max(0, (int) (dp(82) * (th.pal + .5f) - hs.getWidth() / 2f)), 0)); // the chosen one in the middle
         LinearLayout m = new LinearLayout(this); // dark / light / auto, done
         m.setGravity(Gravity.CENTER_VERTICAL);
         for (int i = 0; i < 3; i++) {

@@ -7,12 +7,21 @@ import android.content.SharedPreferences;
 import android.content.pm.ShortcutInfo;
 import android.content.pm.ShortcutManager;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Typeface;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
+import android.text.Editable;
+import android.text.InputFilter;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -114,17 +123,72 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         for (String k : new TreeSet<>(d.getAll().keySet())) row(k, k, k.equals(cur), true);
     }
 
-    // a home screen shortcut that opens this profile in a window of its own
-    void pin(String k) {
-        ShortcutManager sm = getSystemService(ShortcutManager.class);
+    // the icon of a shortcut: the text (a letter, an emoji, initials) in the accent colour on the
+    // background of the profile's theme, as big as fits the part of an adaptive icon that is not masked
+    static Bitmap icon(String s, Th t) {
+        Bitmap b = Bitmap.createBitmap(432, 432, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        c.drawColor(t.bg);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(t.ac);
+        p.setTypeface(Typeface.DEFAULT_BOLD);
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setTextSize(100);
+        float box = 216, w = Math.max(1, p.measureText(s));
+        p.setTextSize(Math.min(100 * box / w, box * 1.1f));
+        Paint.FontMetrics m = p.getFontMetrics();
+        c.drawText(s, 216, 216 - (m.ascent + m.descent) / 2, p);
+        return b;
+    }
+
+    // a home screen shortcut that opens this profile in a window of its own; first a small box for
+    // the text of its icon, with a preview in the theme of the profile
+    void pin(final String k) {
+        final ShortcutManager sm = getSystemService(ShortcutManager.class);
         if (sm == null || !sm.isRequestPinShortcutSupported()) {
             Toast.makeText(this, "This launcher cannot add shortcuts", Toast.LENGTH_SHORT).show();
             return;
         }
-        Intent i = new Intent(this, M.class).setAction(Intent.ACTION_VIEW)
-                .setData(Uri.parse("wee://profile/" + Uri.encode(k)));
-        sm.requestPinShortcut(new ShortcutInfo.Builder(this, "p:" + k).setShortLabel(k).setLongLabel(k)
-                .setIcon(Icon.createWithResource(this, getApplicationInfo().icon)).setIntent(i).build(), null);
+        final Th t = Th.get(this, p, k);
+        final EditText e = new EditText(this);
+        e.setSingleLine();
+        e.setFilters(new InputFilter[]{new InputFilter.LengthFilter(6)});
+        e.setTextColor(th.fg);
+        e.setText(k.isEmpty() ? "?" : k.substring(0, k.offsetByCodePoints(0, 1)).toUpperCase());
+        e.setSelectAllOnFocus(true);
+        final ImageView v = new ImageView(this);
+        v.setImageBitmap(icon(e.getText().toString(), t));
+        e.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence x, int a, int b, int c) {
+            }
+
+            @Override public void onTextChanged(CharSequence x, int a, int b, int c) {
+                v.setImageBitmap(icon(x.length() == 0 ? "?" : x.toString(), t));
+            }
+
+            @Override public void afterTextChanged(Editable x) {
+            }
+        });
+        TextView h = new TextView(this);
+        h.setText("Text for the icon. A single letter, an emoji, any glyph or your initials look best.");
+        h.setTextColor(th.dim);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(12), 0, 0);
+        row.addView(v, new LinearLayout.LayoutParams(dp(64), dp(64)));
+        row.addView(e, new LinearLayout.LayoutParams(0, -2, 1f));
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.VERTICAL);
+        l.setPadding(dp(20), dp(8), dp(20), 0);
+        l.addView(h);
+        l.addView(row);
+        th.dlg(this).setTitle("Shortcut icon").setView(l).setPositiveButton("Add", (d, w) -> {
+            String s = e.getText().toString().trim();
+            Intent i = new Intent(this, M.class).setAction(Intent.ACTION_VIEW)
+                    .setData(Uri.parse("wee://profile/" + Uri.encode(k)));
+            sm.requestPinShortcut(new ShortcutInfo.Builder(this, "p:" + k).setShortLabel(k).setLongLabel(k)
+                    .setIcon(Icon.createWithAdaptiveBitmap(icon(s.isEmpty() ? "?" : s, t))).setIntent(i).build(), null);
+        }).setNegativeButton("Cancel", null).show();
     }
 
     // ids: 1 = select, 2 = export, 3 = delete (hold), 4 = import, 5 = browse, 6 = shortcut
