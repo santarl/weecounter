@@ -85,6 +85,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         "\uD83C\uDF49", "\uD83C\uDF89", "\uD83C\uDF1F", "\uD83D\uDCAF"};
 
     SharedPreferences p;
+    boolean sm;     // simple mode: a plain counter, the selected profile is kept but not used
     String pin;     // the profile of the shortcut this window was opened with (or null); pf is the window's current profile
     boolean chain;  // the settings / profile screens were opened from here
     FrameLayout f;
@@ -366,6 +367,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         Uri u = getIntent().getData();
         pin = u != null && "wee".equals(u.getScheme()) ? u.getLastPathSegment() : null;
         pf = b != null && b.containsKey("pf") ? b.getString("pf") : pin != null ? pin : p.getString("pf", "");
+        sm = b != null && b.containsKey("sm") ? b.getBoolean("sm") : pin == null && !p.getBoolean("pm", false); // start in simple mode; a profile shortcut in profile mode
         th = Th.get(this, p, pf);
         n = p.getInt("n", 0);
         mode = p.getInt("md", 0);
@@ -498,7 +500,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         super.onResume();
         if (chain) { // back from the settings or profile screens opened here: they may have changed the profile
             chain = false;
-            pf = p.getString("pf", "");
+            String np = p.getString("pf", "");
+            if (!np.isEmpty() && !np.equals(pf)) setMode(false); // choosing a profile turns profile mode on
+            pf = np;
         }
         th = Th.get(this, p, pf);
         mx = num(1);
@@ -536,6 +540,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     @Override protected void onSaveInstanceState(Bundle o) {
         super.onSaveInstanceState(o);
         o.putString("pf", pf);
+        o.putBoolean("sm", sm);
     }
 
     @Override protected void onPause() {
@@ -543,6 +548,11 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         f.removeCallbacks(this);
         land();
         undo();
+        keep();
+    }
+
+    // writes down the counts (the plain counter, or the profile's)
+    void keep() {
         SharedPreferences.Editor e = p.edit().putInt("md", mode).putInt("vi", vi);
         if (pr == null) e.putInt("n", n); // a profile counts on its own (cn:), only a plain window writes the plain counter
         else {
@@ -551,6 +561,21 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             e.putString("cn:" + pf, sb.toString()).putInt("cu:" + pf, cur);
         }
         e.apply();
+    }
+
+    void setMode(boolean simple) {
+        sm = simple;
+        if (pin == null) p.edit().putBoolean("pm", !simple).apply(); // a plain window remembers it
+    }
+
+    // menu: simple mode (a plain counter) or profile mode (the selected dhikr profile)
+    void toggleMode() {
+        keep();
+        setMode(!sm);
+        load();
+        if (pr == null) n = p.getInt("n", 0);
+        skin();
+        draw();
     }
 
     // Do Not Disturb while the app is in front (opt-in, chosen in settings).
@@ -968,7 +993,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     void load() {
         pr = null;
-        if (pf.length() > 0) {
+        if (pf.length() > 0 && !sm) {
             String tx = getSharedPreferences("d", 0).getString(pf, null);
             pr = tx == null ? null : parse(tx);
             if (pr == null) {
@@ -1188,8 +1213,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         TextView t = new TextView(this);
         t.setText(s);
         t.setTextColor(col);
-        t.setTextSize(15);
-        t.setPadding(dp(10), dp(10), dp(10), dp(10));
+        t.setTextSize(14);
+        t.setPadding(dp(7), dp(10), dp(7), dp(10));
         t.setOnClickListener(l);
         return t;
     }
@@ -1204,7 +1229,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             final int k = i;
             Th c = new Th(this, i + "," + th.mode);
             TextView t = new TextView(this);
-            t.setText(Th.name(i, c.light));
+            t.setText(c.title());
             t.setTextSize(11);
             t.setGravity(Gravity.CENTER);
             t.setTextColor(c.ac);
@@ -1223,7 +1248,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         hs.post(() -> hs.scrollTo(Math.max(0, (int) (dp(82) * (th.pal + .5f) - hs.getWidth() / 2f)), 0)); // the chosen one in the middle
         LinearLayout m = new LinearLayout(this); // dark / light / auto, done
         m.setGravity(Gravity.CENTER_VERTICAL);
-        for (int i = 0; i < 3; i++) {
+        for (int i : Th.ORDER) {
             final int k = i;
             m.addView(sb(i == th.mode ? "[" + Th.MODES[i] + "]" : Th.MODES[i], i == th.mode ? th.ac : th.dim,
                     v -> pick(th.pal, k)));
@@ -1434,6 +1459,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     void menu(View anchor) {
         PopupMenu m = new PopupMenu(new ContextThemeWrapper(this, th.light ? android.R.style.Theme_DeviceDefault_Light
                 : android.R.style.Theme_DeviceDefault), anchor);
+        if (!pf.isEmpty()) m.getMenu().add(0, 6, -1, sm ? "Profile mode: " + pf : "Simple mode");
         m.getMenu().add(0, 1, 0, "Settings");
         m.getMenu().add(0, 2, 1, "Profiles");
         m.getMenu().add(0, 3, 2, "Edit layout");
@@ -1444,6 +1470,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             if (id == 3) enterEdit();
             else if (id == 4) goTo();
             else if (id == 5) strip();
+            else if (id == 6) toggleMode();
             else {
                 p.edit().putString("pf", pf).apply(); // the screens show this window's profile and may change it
                 chain = true;

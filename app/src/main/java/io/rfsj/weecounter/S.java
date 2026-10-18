@@ -41,6 +41,8 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
 
     SharedPreferences p;
     Th th;          // colours
+    boolean dflt;   // this screen shows the default theme (after you changed it here), not the one of the profile
+    ScrollView sv;
     TextView tm;    // the default theme
     EditText[] e = new EditText[M.D.length];
     CheckBox aw, dk, hp, wk;
@@ -50,7 +52,8 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
 
     @Override protected void onCreate(Bundle b) {
         SharedPreferences q = getSharedPreferences("p", 0);
-        th = Th.get(this, q, q.getString("pf", "")); // the theme of the profile this screen was opened from
+        dflt = b != null && b.getBoolean("d");
+        th = dflt ? new Th(this, q.getString("th", "0,0")) : Th.get(this, q, q.getString("pf", "")); // the theme of the profile this screen was opened from
         setTheme(th.theme());
         super.onCreate(b);
         th.bars(this);
@@ -84,7 +87,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         tm.setOnClickListener(this);
         tm.setOnLongClickListener(this);
         l.addView(tm);
-        l.addView(tv("The default look of the whole app: a palette and its dark or light mode (auto follows the phone). Menu > Theme tries them on the main screen, for one profile or as the default.", th.dim, m / 4));
+        l.addView(tv("The default look of the whole app: a palette and its mode: dark, light, vibrant (a light one with a coloured background), neon (a dark one with glowing colours) or auto (follows the phone). It shows on this screen at once. Menu > Theme tries them on the main screen, for one profile or as the default.", th.dim, m / 4));
 
         dd = tv("", th.fg, m * 2);
         dd.setOnClickListener(this);
@@ -140,13 +143,22 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         s.setFitsSystemWindows(true);
         s.addView(l);
         setContentView(s);
+        sv = s;
+        final int y = b != null ? b.getInt("y") : 0;
+        if (y > 0) s.post(() -> s.scrollTo(0, y)); // where you were, after the screen was redone in a new theme
         fill(false);
         themeRow();
     }
 
+    @Override protected void onSaveInstanceState(Bundle o) {
+        super.onSaveInstanceState(o);
+        o.putBoolean("d", dflt);
+        o.putInt("y", sv.getScrollY());
+    }
+
     void themeRow() {
         int[] v = Th.parse(p.getString("th", "0,0"));
-        tm.setText("Theme: " + Th.name(v[0], new Th(this, v[0] + "," + v[1]).light) + ", " + Th.MODES[v[1]] + "  (tap: next palette, hold: dark / light / auto)");
+        tm.setText("Theme: " + new Th(this, v[0] + "," + v[1]).title() + ", " + Th.MODES[v[1]] + "  (tap: next palette, hold: next mode)");
     }
 
     // white tick box so it stays visible on black when checked
@@ -211,6 +223,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         if (x == tm) {
             int[] v = Th.parse(p.getString("th", "0,0"));
             p.edit().putString("th", (v[0] + 1) % Th.NAMES.length + "," + v[1]).apply();
+            dflt = true;
             recreate();
         } else if (x == dd) {
             dm = (dm + 1) % DN.length;
@@ -317,7 +330,8 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
     @Override public boolean onLongClick(View x) {
         if (x == tm) {
             int[] v = Th.parse(p.getString("th", "0,0"));
-            p.edit().putString("th", v[0] + "," + (v[1] + 1) % 3).apply();
+            p.edit().putString("th", v[0] + "," + Th.nextMode(v[1])).apply();
+            dflt = true;
             recreate();
             return true;
         }

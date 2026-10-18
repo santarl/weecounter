@@ -12,15 +12,19 @@ import android.view.View;
 final class Th {
     static final String[] NAMES = {"Midnight", "Ocean", "Rose", "Sand", "Forest", "Violet", "Sunset", "Mint", "Teal",
         "Slate", "Coffee", "Lime", "Graphite", "Orchid"};
-    static final String[] MODES = {"dark", "light", "auto"};
+    // dark, light, auto (follows the phone), vibrant (a light one with a strongly coloured background),
+    // neon (a dark one with glowing colours); the numbers are what is saved, ORDER is how they are shown
+    static final String[] MODES = {"dark", "light", "auto", "vibrant", "neon"};
+    static final int[] ORDER = {0, 1, 3, 4, 2};
     // per palette: its hue (degrees) and how tinted the backgrounds are (0 = pure black / white).
     // Every other colour is worked out from these, see the constructor.
     static final float[][] H = {{150, 0}, {205, .5f}, {340, .5f}, {42, .5f}, {140, .5f}, {265, .5f}, {18, .55f},
         {160, .4f}, {185, .5f}, {215, .18f}, {24, .45f}, {88, .5f}, {0, .02f}, {300, .5f}};
 
-    // the name of a palette in a mode: pure black has a light mode of its own name
-    static String name(int pal, boolean light) {
-        return pal == 0 && light ? "myeyes" : NAMES[pal];
+    // the next mode in the order they are shown in
+    static int nextMode(int m) {
+        for (int i = 0; i < ORDER.length; i++) if (ORDER[i] == m) return ORDER[(i + 1) % ORDER.length];
+        return 0;
     }
 
     int pal, mode, bg, fg, dim, ac, warn, bad;
@@ -31,17 +35,20 @@ final class Th {
         int[] v = parse(s);
         pal = v[0];
         mode = v[1];
-        light = mode == 1 || mode == 2
+        boolean vib = mode == 3, neon = mode == 4;
+        light = mode == 1 || vib || mode == 2
                 && (x.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) != Configuration.UI_MODE_NIGHT_YES;
-        float h = H[pal][0], t = H[pal][1];
-        bg = t == 0 ? (light ? 0xFFFFFFFF : 0xFF000000) : hsl(h, t, light ? .965f : .07f);
-        fg = fit(h, t == 0 ? 0 : .1f, bg, 17);
-        dim = fit(h, t == 0 ? 0 : .15f, bg, 5);
-        ac = fit(h, .85f, bg, 4.6f);
-        warn = fit(38, .9f, bg, 4.6f);
-        bad = fit(2, .85f, bg, 4.6f);
-        lap = new int[]{fg, ac, fit(h + 70, .8f, bg, 4.6f), fit(h + 140, .8f, bg, 4.6f),
-                fit(h + 210, .8f, bg, 4.6f), fit(h + 280, .8f, bg, 4.6f)};
+        float h = H[pal][0], t = H[pal][1], sat = neon ? 1 : vib ? .9f : .85f, ls = neon ? 1 : .8f;
+        bg = vib ? hsl(h, Math.min(.8f, t * 1.4f), .78f)
+                : neon ? (t == 0 ? 0xFF000000 : hsl(h, t * .8f, .05f))
+                : t == 0 ? (light ? 0xFFFFFFFF : 0xFF000000) : hsl(h, t, light ? .965f : .07f);
+        fg = fit(h, t == 0 ? 0 : neon ? .2f : .1f, bg, vib ? 10 : 17);
+        dim = fit(h, t == 0 ? 0 : neon ? .5f : .15f, bg, 5);
+        ac = fit(h, sat, bg, 4.6f);
+        warn = fit(38, sat + .05f, bg, 4.6f);
+        bad = fit(2, sat, bg, 4.6f);
+        lap = new int[]{fg, ac, fit(h + 70, ls, bg, 4.6f), fit(h + 140, ls, bg, 4.6f),
+                fit(h + 210, ls, bg, 4.6f), fit(h + 280, ls, bg, 4.6f)};
     }
 
     // colour of a hue and saturation, with the first lightness (stepped from the vivid middle: up on
@@ -88,7 +95,7 @@ final class Th {
         try {
             String[] t = s.split(",");
             int a = Integer.parseInt(t[0].trim()), m = Integer.parseInt(t[1].trim());
-            if (a >= 0 && a < H.length && m >= 0 && m < 3) return new int[]{a, m};
+            if (a >= 0 && a < H.length && m >= 0 && m < MODES.length) return new int[]{a, m};
         } catch (Exception e) {
             // the default
         }
@@ -99,6 +106,11 @@ final class Th {
     static Th get(Context x, SharedPreferences p, String pf) {
         String s = pf.isEmpty() ? null : p.getString("th:" + pf, null);
         return new Th(x, s != null ? s : p.getString("th", "0,0"));
+    }
+
+    // the name of the palette: pure black has a light mode of its own name
+    String title() {
+        return pal == 0 && light && mode != 3 ? "myeyes" : NAMES[pal];
     }
 
     // a blended with b, t of the way (0..1)
