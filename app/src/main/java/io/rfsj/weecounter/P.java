@@ -123,10 +123,24 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         for (String k : new TreeSet<>(d.getAll().keySet())) row(k, k, k.equals(cur), true);
     }
 
+    // the profile as text in the share dialog; it starts with "# name" so that this app (and its
+    // import of shared text) names it again
+    void share(String k) {
+        String t = d.getString(k, "");
+        for (String ln : t.split("\\r?\\n")) {
+            String l = ln.trim();
+            if (l.isEmpty()) continue;
+            if (!l.startsWith("#")) t = "# " + k + "\n" + t;
+            break;
+        }
+        startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain")
+                .putExtra(Intent.EXTRA_SUBJECT, k).putExtra(Intent.EXTRA_TEXT, t), "Share " + k));
+    }
+
     // the icon of a shortcut: the text (a letter, an emoji, initials) in the accent colour on the
     // background of the profile's theme, as big as fits the part of an adaptive icon that is not masked
     static Bitmap icon(String s, Th t) {
-        Bitmap b = Bitmap.createBitmap(432, 432, Bitmap.Config.ARGB_8888);
+        Bitmap b = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888); // small: a big icon can fail to cross to the launcher
         Canvas c = new Canvas(b);
         c.drawColor(t.bg);
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -134,10 +148,10 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         p.setTypeface(Typeface.DEFAULT_BOLD);
         p.setTextAlign(Paint.Align.CENTER);
         p.setTextSize(100);
-        float box = 216, w = Math.max(1, p.measureText(s));
+        float box = 128, w = Math.max(1, p.measureText(s));
         p.setTextSize(Math.min(100 * box / w, box * 1.1f));
         Paint.FontMetrics m = p.getFontMetrics();
-        c.drawText(s, 216, 216 - (m.ascent + m.descent) / 2, p);
+        c.drawText(s, 128, 128 - (m.ascent + m.descent) / 2, p);
         return b;
     }
 
@@ -186,7 +200,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
             String s = e.getText().toString().trim();
             Intent i = new Intent(this, M.class).setAction(Intent.ACTION_VIEW)
                     .setData(Uri.parse("wee://profile/" + Uri.encode(k)));
-            sm.requestPinShortcut(new ShortcutInfo.Builder(this, "p:" + k).setShortLabel(k).setLongLabel(k)
+            sm.requestPinShortcut(new ShortcutInfo.Builder(this, "p:" + k + ":" + System.currentTimeMillis()) // a new id every time: the launcher shows the icon of an existing id.setShortLabel(k).setLongLabel(k)
                     .setIcon(Icon.createWithAdaptiveBitmap(icon(s.isEmpty() ? "?" : s, t))).setIntent(i).build(), null);
         }).setNegativeButton("Cancel", null).show();
     }
@@ -235,13 +249,17 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
                 p.edit().putString("pf", k).apply();
                 fill();
                 break;
-            case 2: {
-                ex = k;
-                Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-                        .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE, k + ".dhikr");
-                startActivityForResult(i, 2);
+            case 2:
+                th.dlg(this).setTitle("Export " + k)
+                        .setMessage("Share sends the profile as text (this app imports it again from shared text). "
+                                + "Save as file writes a .dhikr file.")
+                        .setPositiveButton("Share", (d0, w0) -> share(k))
+                        .setNeutralButton("Save as file", (d0, w0) -> {
+                            ex = k;
+                            startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                                    .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE, k + ".dhikr"), 2);
+                        }).setNegativeButton("Cancel", null).show();
                 break;
-            }
             case 5:
                 startActivity(new Intent(this, B.class));
                 break;
