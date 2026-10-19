@@ -414,13 +414,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         lay.addView(bot);
         f.addView(lay, new FrameLayout.LayoutParams(-1, -1));
 
-        // one dot per view of the slide in a row, the current one lit
-        ind = new Pd(this);
-        f.addView(ind, new FrameLayout.LayoutParams(dp(160), dp(16), Gravity.TOP | Gravity.START));
-
-        cf = new Cf(this);
-        f.addView(cf, new FrameLayout.LayoutParams(-1, -1));
-
         se = b("menu");
         se.setOnClickListener(this);
         rs = b("reset");
@@ -442,6 +435,13 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         ttl = new TextView(this);         // slide title: an element of its own
         ttl.setTextColor(0xFF999999);
         f.addView(ttl, new FrameLayout.LayoutParams(-2, -2));
+
+        // one dot per view of the slide in a row, the current one lit; above the elements
+        ind = new Pd(this);
+        f.addView(ind, new FrameLayout.LayoutParams(dp(160), dp(16), Gravity.TOP | Gravity.START));
+
+        cf = new Cf(this);
+        f.addView(cf, new FrameLayout.LayoutParams(-1, -1));
 
         ev = new View[]{se, rs, dn, vw, dl, bot, pg, dt, ttl};
         ui = new View[]{lay, dt, se, rs, dn, vw, ind, pg, ttl};
@@ -661,19 +661,20 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     // default rectangle of element i: 0 menu, 1 reset, 2 -1, 3 view, 4 dhikr text, 5 counter,
-    // 6 footer, 7 Do Not Disturb warning, 8 slide title. Top to bottom: top bar, dhikr text with the title
-    // line, counter (20% of the screen), warning, bottom buttons, footer.
+    // 6 footer, 7 Do Not Disturb warning, 8 slide title. Symmetric about the middle of the screen, top to
+    // bottom: menu and reset in the corners, warning, dhikr text, counter, (the view dots), slide title,
+    // and a bottom row of -1, the footer and the focus button.
     // default layout as fractions of the screen: left, top, right, bottom of every element
     static final float[][] DF = {
-        {0, 0, .2222f, .0526f},           // menu
-        {.7889f, 0, 1, .0526f},           // reset
-        {0, .9047f, .1611f, .9342f},      // -1
-        {.6083f, .9047f, 1, .9547f},      // view
+        {0, 0, .25f, .0526f},             // menu
+        {.75f, 0, 1, .0526f},             // reset
+        {0, .95f, .25f, .985f},           // -1
+        {.75f, .95f, 1, .985f},           // view (the focus button)
         {0, .1064f, 1, .7440f},           // dhikr text
-        {0, .7466f, 1, .9017f},           // counter
-        {.2222f, .9535f, .7778f, .9897f}, // footer
+        {0, .7466f, 1, .875f},            // counter
+        {.25f, .95f, .75f, .985f},        // footer
         {0, .0560f, 1, .1064f},           // Do Not Disturb warning
-        {0, .9342f, 1, .9756f}};          // title
+        {.04f, .9f, .96f, .94f}};         // title
 
     RectF def(int i) {
         DisplayMetrics dm = getResources().getDisplayMetrics();
@@ -995,6 +996,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         ttl.setTextColor(th.dim);
         dt.setTextColor(th.warn);
         for (TextView x : new TextView[]{se, rs, dn, vw}) x.setTextColor(th.dim);
+        // the elements have the colour of the screen behind them, so a sliding slide text goes under them
+        for (View x : new View[]{se, rs, dn, vw, pg, ttl, dt, bot}) x.setBackgroundColor(th.bg);
         ind.off = (th.dim & 0xFFFFFF) | 0x66000000;
     }
 
@@ -1102,7 +1105,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             draw();
         };
         if (cv) r.run();
-        else if (h) flipH(dx < 0 ? -1 : 1, r);
+        else if (h) flip(dx < 0 ? -1 : 1, 0, r);
         else flip(0, dy < 0 ? -1 : 1, r);
     }
 
@@ -1126,49 +1129,33 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
     }
 
-    // Slides the panel out the way the finger went (fx / fy = -1, 0 or 1), applies the change
-    // and slides the new content in from the opposite side.
+    // Slides the dhikr text out the way the finger went (fx / fy = -1, 0 or 1), applies the change
+    // and slides the new text in from the opposite side. Only the text block moves: the number, the
+    // title, the footer and the buttons stay where they are (they have a background, so the text
+    // slides under them).
     void flip(float fx, float fy, Runnable change) {
-        final float w = lay.getWidth() * fx, h = lay.getHeight() * .4f * fy;
+        final float w = dl.getWidth() * .3f * fx, h = dl.getHeight() * .3f * fy;
         pend = change;
-        lay.animate().translationX(shx + w).translationY(shy + h).alpha(0).setDuration(100)
-                .withEndAction(() -> {
-                    Runnable r = pend;
-                    pend = null;
-                    if (r != null) r.run();
-                    lay.setTranslationX(shx - w);
-                    lay.setTranslationY(shy - h);
-                    lay.animate().translationX(shx).translationY(shy).alpha(1).setDuration(140);
-                });
-    }
-
-    // finishes a running slide animation right away, including its pending change
-    void land() {
-        lay.animate().cancel();
-        dl.animate().cancel();
-        Runnable r = pend;
-        pend = null;
-        if (r != null) r.run();
-        lay.setAlpha(1);
-        lay.setTranslationX(shx);
-        lay.setTranslationY(shy);
-        dl.setTranslationX(0);
-        dl.setAlpha(1);
-    }
-
-    // Horizontal swipe (another view of the slide): only the dhikr text block moves; the title,
-    // the number and the footer stay where they are.
-    void flipH(float fx, Runnable change) {
-        final float w = dl.getWidth() * .3f * fx;
-        pend = change;
-        dl.animate().translationX(w).alpha(0).setDuration(100).withEndAction(() -> {
+        dl.animate().translationX(w).translationY(h).alpha(0).setDuration(100).withEndAction(() -> {
             Runnable r = pend;
             pend = null;
             if (r != null) r.run();
             dl.setTranslationX(-w);
+            dl.setTranslationY(-h);
             dl.setAlpha(0);
-            dl.animate().translationX(0).alpha(1).setDuration(140);
+            dl.animate().translationX(0).translationY(0).alpha(1).setDuration(140);
         });
+    }
+
+    // finishes a running slide animation right away, including its pending change
+    void land() {
+        dl.animate().cancel();
+        Runnable r = pend;
+        pend = null;
+        if (r != null) r.run();
+        dl.setTranslationX(0);
+        dl.setTranslationY(0);
+        dl.setAlpha(1);
     }
 
     // hold on the footer (slide x of y): list of the slides to jump to; the title is the profile name,
