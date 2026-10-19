@@ -127,14 +127,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     FrameLayout fo;  // the focus sheet (the focus button), null until first opened
     ScaleGestureDetector sd; // pinch to resize the dhikr text of a slide / view
     float zs;        // text scale while pinching
-    // a dhikr text pinched bigger than its rectangle scrolls, with a bar on the right and a ...
-    Sb sbar;                     // the scroll bar and the ... of the dhikr text
-    boolean ovf, pinching, grabbing; // text taller than its rectangle / pinching / dragging the bar
-    float scr, smax, sgs;        // scrolled by / most it can scroll / scrolled by when the bar was grabbed (px)
-    float gdx, gdy, pany;        // where the finger that may grab the bar went down; middle of two fingers
-    long gdt;                    // when that finger went down
-    int sck = -9;                // the dhikr text (slide * 64 + view) the scroll belongs to
-    final Runnable grabRun = () -> grab();
     float spx;       // px per sp
     float bs;        // standard size (px, before scaling) of the shown dhikr text block
     float tx, ty;    // where the current touch started
@@ -413,8 +405,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         dl.setOnClickListener(this);     // a tap still counts, hold toggles the counting view like anywhere else
         dl.setOnLongClickListener(this);
         lay.addView(dl);
-        sbar = new Sb(this);
-        lay.addView(sbar, new FrameLayout.LayoutParams(-1, -1)); // same rectangle as the text, see place1
         bot = new LinearLayout(this);
         bot.setOrientation(LinearLayout.VERTICAL);
         bot.setGravity(Gravity.CENTER);
@@ -731,7 +721,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, sz);
         }
         x.setLayoutParams(lp);
-        if (i == 4) sbar.setLayoutParams(new FrameLayout.LayoutParams(lp));
         if (i == 8) { // the view dots sit just above the slide title, centred on it
             FrameLayout.LayoutParams ip = (FrameLayout.LayoutParams) ind.getLayoutParams();
             ip.leftMargin = (int) Math.max(0, r.centerX() - ip.width / 2f);
@@ -848,8 +837,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // line breaks are kept while the block still gets a size within 15% of the one it gets with
     // the lines run together; otherwise the lines are joined with the glyph \u21B5 and wrap freely.
     // The size is the largest that fits the rectangle, at most 34sp, times the scale the user
-    // pinched for this slide and view. A pinch bigger than what fits stays, and the text scrolls;
-    // so does a text that does not fit even at the smallest size.
+    // pinched for this slide and view (as far as it fits).
     void lines(String[] tx, float[] w, float z) {
         RectF r = er[4];
         int W = (int) r.width() - dp(16), last = -1;
@@ -877,15 +865,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         CharSequence use = keep ? brk : flo;
         bs = keep ? sb : sf;
         dl.setText(use);
-        float fs = z > 1 ? bs * z : fit(use, W, area, bs * z);
-        dl.setTextSize(TypedValue.COMPLEX_UNIT_PX, fs);
-        TextPaint tq = new TextPaint();
-        tq.setTextSize(fs);
-        float tot = height(use, tq, W);
-        ovf = tot > area;
-        smax = ovf ? tot - area + dp(6) : 0; // a little spare, so the last line is never cut
-        dl.setGravity(ovf ? Gravity.TOP | Gravity.CENTER_HORIZONTAL : Gravity.CENTER);
-        scroll(scr);
+        dl.setTextSize(TypedValue.COMPLEX_UNIT_PX, fit(use, W, area, bs * z));
         lay.requestLayout();
     }
 
@@ -960,16 +940,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
         if (key != shown) { // only rebuild and re-fit the text when the slide or view changes
             shown = key;
-            if (key != sck) { // another slide or view: back to the top
-                sck = key;
-                scr = 0;
-            }
             place();
             lines(tx, tw, zz);
         }
         boolean dk = pr != null || demo;
-        if (!dk) ovf = false;
-        sbar.invalidate();
         pg.setText(prog);
         ttl.setText(title);
         dl.setVisibility(dk ? View.VISIBLE : View.GONE);
@@ -1091,25 +1065,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             return true;
         }
         if (pr != null && !edit) {
-            int am = e.getActionMasked();
-            if (am == MotionEvent.ACTION_UP || am == MotionEvent.ACTION_CANCEL || am == MotionEvent.ACTION_POINTER_DOWN)
-                f.removeCallbacks(grabRun); // lifted, or a second finger, before the hold: no grab
-            if (grabbing) { // dragging the scroll bar of an oversized text: nothing else gets this touch
-                if (am == MotionEvent.ACTION_MOVE)
-                    scroll(sgs + (e.getY() - gdy) * smax / Math.max(1f, trackLen() - thumbLen()));
-                else if (am == MotionEvent.ACTION_UP || am == MotionEvent.ACTION_CANCEL) {
-                    grabbing = false;
-                    sbar.invalidate();
-                }
-                return true;
-            }
             sd.onTouchEvent(e);
-            // two fingers moving together (not apart: that is a pinch) scroll the text like a trackpad
-            if (ovf && !cv && e.getPointerCount() == 2 && (am == MotionEvent.ACTION_MOVE || am == MotionEvent.ACTION_POINTER_DOWN)) {
-                float my = (e.getY(0) + e.getY(1)) / 2;
-                if (am == MotionEvent.ACTION_MOVE && !sd.isInProgress()) scroll(scr + pany - my);
-                pany = my;
-            }
             if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN && !sw) {
                 sw = true; // a second finger is a pinch: no tap, hold or swipe
                 e.setAction(MotionEvent.ACTION_CANCEL);
@@ -1120,19 +1076,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     tx = e.getX();
                     ty = e.getY();
                     sw = false;
-                    // a hold on the right edge of an oversized text grabs its scroll bar
-                    if (ovf && !cv && !pinching && e.getX() >= er[4].right - dp(36) && e.getY() >= er[4].top
-                            && e.getY() <= er[4].bottom) {
-                        gdx = e.getX();
-                        gdy = e.getY();
-                        gdt = e.getDownTime();
-                        f.postDelayed(grabRun, 250);
-                    }
                     break;
                 case MotionEvent.ACTION_MOVE: {
                     if (sw) return true;
                     float dx = e.getX() - tx, dy = e.getY() - ty;
-                    if (Math.max(Math.abs(dx), Math.abs(dy)) > dp(12)) f.removeCallbacks(grabRun); // moved too soon: a swipe
                     if (Math.max(Math.abs(dx), Math.abs(dy)) < dp(64)) break;
                     sw = true;
                     swipe(dx, dy);
@@ -1144,35 +1091,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             }
         }
         return super.dispatchTouchEvent(e);
-    }
-
-    // scrolls an oversized dhikr text to this far from its top (px) and redraws the bar
-    void scroll(float to) {
-        scr = Math.max(0, Math.min(smax, to));
-        dl.scrollTo(0, (int) scr);
-        sbar.invalidate();
-    }
-
-    // the length of the scroll bar's track and of its thumb (px)
-    float trackLen() {
-        return er[4].height() - 2 * dp(8);
-    }
-
-    float thumbLen() {
-        float k = trackLen();
-        return Math.max(dp(28), k * k / (k + smax));
-    }
-
-    // a hold on the scroll bar: the views drop the touch, and the finger drags the bar from now on
-    void grab() {
-        if (!ovf || cv) return;
-        MotionEvent c = MotionEvent.obtain(gdt, SystemClock.uptimeMillis(), MotionEvent.ACTION_CANCEL, gdx, gdy, 0);
-        super.dispatchTouchEvent(c); // the pending tap and hold are cancelled
-        c.recycle();
-        grabbing = true;
-        sgs = scr;
-        sbar.invalidate();
-        z(vt);
     }
 
     void swipe(float dx, float dy) {
@@ -1704,8 +1622,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     @Override public boolean onScaleBegin(ScaleGestureDetector d) {
         if (pr == null || cv || slide() >= pr.c.length) return false;
         zs = p.getFloat(zk(), 1f);
-        pinching = true;
-        sbar.invalidate();
         return true;
     }
 
@@ -1716,7 +1632,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     @Override public void onScaleEnd(ScaleGestureDetector d) {
-        pinching = false;
         if (pr == null || slide() >= pr.c.length) return;
         p.edit().putFloat(zk(), zs).apply();
         shown = -2; // lay everything out again with the new scale
@@ -2345,8 +2260,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
     }
 
-    // view dots like a launcher's page indicator: one per view of the slide in a row, the
-    // current one lit in the slide colour
+    // view dots at the left edge, like a launcher's page indicator: one per view of the
+    // slide, the current one lit in the slide colour, centred in the view's height
     static class Pd extends View {
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         int n, cur, col, off = 0xFF444444;
@@ -2363,45 +2278,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 p.setColor(i == cur ? col : off);
                 c.drawCircle(x + i * pitch, getHeight() / 2f, (i == cur ? 4 : 3) * u, p);
             }
-        }
-    }
-
-    // The scroll indicator of a dhikr text taller than its rectangle: a thin bar on the right edge
-    // (it lights up while it is held) and a ... where there is more text above or below.
-    static class Sb extends View {
-        final M m;
-        final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        final RectF rc = new RectF();
-
-        Sb(M x) {
-            super(x);
-            m = x;
-        }
-
-        @Override protected void onDraw(Canvas c) {
-            if (!m.ovf || m.pinching || m.cv) return;
-            float u = getResources().getDisplayMetrics().density, w = getWidth(), h = getHeight(), pad = 8 * u;
-            float tk = m.trackLen(), tl = m.thumbLen(), bw = (m.grabbing ? 5 : 3) * u, cx = w - 5 * u;
-            float ty = pad + (tk - tl) * (m.smax > 0 ? m.scr / m.smax : 0);
-            p.setColor((m.th.dim & 0xFFFFFF) | 0x33000000);
-            rc.set(cx - .75f * u, pad, cx + .75f * u, h - pad);
-            c.drawRoundRect(rc, u, u, p);
-            p.setColor(m.grabbing ? m.th.ac : (m.th.dim & 0xFFFFFF) | 0xAA000000);
-            rc.set(cx - bw / 2, ty, cx + bw / 2, ty + tl);
-            c.drawRoundRect(rc, bw / 2, bw / 2, p);
-            if (m.scr < m.smax - 1) more(c, w / 2, h - 14 * u, u);
-            if (m.scr > 1) more(c, w / 2, 14 * u, u);
-        }
-
-        // a small pill with a ... in it, centred on (x, y)
-        void more(Canvas c, float x, float y, float u) {
-            rc.set(x - 22 * u, y - 11 * u, x + 22 * u, y + 11 * u);
-            p.setColor((m.th.bg & 0xFFFFFF) | 0xCC000000);
-            c.drawRoundRect(rc, 11 * u, 11 * u, p);
-            p.setColor(m.th.dim);
-            p.setTextSize(18 * u);
-            p.setTextAlign(Paint.Align.CENTER);
-            c.drawText("\u2026", x, y + 6 * u, p);
         }
     }
 
