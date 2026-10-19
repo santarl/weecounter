@@ -365,9 +365,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         // every window has its own profile: from its state, or the shortcut it was opened with
         // (wee://profile/<name>), or else the one chosen last
         Uri u = getIntent().getData();
+        boolean simp = u != null && "wee".equals(u.getScheme()) && "simple".equals(u.getHost()); // a reminder of the plain counter
         pin = u != null && "wee".equals(u.getScheme()) ? u.getLastPathSegment() : null;
-        pf = b != null && b.containsKey("pf") ? b.getString("pf") : pin != null ? pin : p.getString("pf", "");
-        sm = b != null && b.containsKey("sm") ? b.getBoolean("sm") : pin == null && !p.getBoolean("pm", false); // start in simple mode; a profile shortcut in profile mode
+        pf = b != null && b.containsKey("pf") ? b.getString("pf") : simp ? "" : pin != null ? pin : p.getString("pf", "");
+        sm = b != null && b.containsKey("sm") ? b.getBoolean("sm") : simp || pin == null && !p.getBoolean("pm", false); // start in simple mode; a profile shortcut in profile mode
         th = Th.get(this, p, pf);
         n = p.getInt("n", 0);
         mode = p.getInt("md", 0);
@@ -1098,6 +1099,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         } else if (s < k && t == 0) {       // next slide; past the last one the profile is completed
             cur = s + 1;
             if (cur >= k) {
+                N.done(this, pf);
                 em = EM[new Random().nextInt(EM.length)];
                 if (!cv) cf.go();
             }
@@ -1465,12 +1467,17 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         m.getMenu().add(0, 3, 2, "Edit layout");
         if (pr != null) m.getMenu().add(0, 4, 3, "Goto");
         m.getMenu().add(0, 5, 4, "Theme");
+        m.getMenu().add(0, 7, 5, "Reminders");
         m.setOnMenuItemClickListener(i -> {
             int id = i.getItemId();
             if (id == 3) enterEdit();
             else if (id == 4) goTo();
             else if (id == 5) strip();
             else if (id == 6) toggleMode();
+            else if (id == 7) {
+                p.edit().putString("pf", pf).apply(); // the screen has the theme of this window
+                startActivity(new Intent(this, N.class));
+            }
             else {
                 p.edit().putString("pf", pf).apply(); // the screens show this window's profile and may change it
                 chain = true;
@@ -1548,12 +1555,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             z(done ? vl : c0 > 1 && cn[cur] % c0 == 0 ? vc : vt);
             cur = nx;
             if (done) {
+                N.done(this, pf); // a kept reminder of this profile goes away
                 em = EM[new Random().nextInt(EM.length)];
                 if (!cv) cf.go();
             }
         } else {
             n++;
             z(mx > 0 && n == mx ? vl : n % st == 0 ? vc : vt);
+            if (n % st == 0 || mx > 0 && n == mx) N.done(this, ""); // a lap (or the goal) of the plain counter
         }
         draw();
     }
