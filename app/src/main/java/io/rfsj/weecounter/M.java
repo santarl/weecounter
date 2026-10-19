@@ -117,7 +117,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     boolean rb;      // the restart is about to happen
     int shx, shy;    // current pixel-shift offset in px
     Runnable pend;   // slide change waiting for the slide-out animation
-    Pd ind;          // view dots, just left of the counter
+    Pd ind;          // view dots: a row above the slide title, shown for a moment after a slide or view change
+    int dsk = -2;    // the dhikr text (slide * 64 + view) the dots were last shown for
+    final Runnable dfd = () -> ind.animate().alpha(0).setDuration(400); // fades the dots out
     Th th;           // colours: the theme of this window's profile
     LinearLayout sp; // the theme strip (menu > Theme), null until first opened
     GestureDetector sg; // swipes on the strip
@@ -412,9 +414,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         lay.addView(bot);
         f.addView(lay, new FrameLayout.LayoutParams(-1, -1));
 
-        // one dot per view of the slide at the left edge, the current one lit
+        // one dot per view of the slide in a row, the current one lit
         ind = new Pd(this);
-        f.addView(ind, new FrameLayout.LayoutParams(dp(24), dp(100), Gravity.TOP | Gravity.START));
+        f.addView(ind, new FrameLayout.LayoutParams(dp(160), dp(16), Gravity.TOP | Gravity.START));
 
         cf = new Cf(this);
         f.addView(cf, new FrameLayout.LayoutParams(-1, -1));
@@ -718,10 +720,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, sz);
         }
         x.setLayoutParams(lp);
-        if (i == 5) { // the view dots sit just left of the counter, centred on it
+        if (i == 8) { // the view dots sit just above the slide title, centred on it
             FrameLayout.LayoutParams ip = (FrameLayout.LayoutParams) ind.getLayoutParams();
-            ip.leftMargin = (int) Math.max(0, r.left - ip.width);
-            ip.topMargin = (int) Math.max(0, r.centerY() - ip.height / 2f);
+            ip.leftMargin = (int) Math.max(0, r.centerX() - ip.width / 2f);
+            ip.topMargin = (int) Math.max(0, r.top - ip.height);
             ind.setLayoutParams(ip);
         }
     }
@@ -961,6 +963,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         ind.cur = ve;
         ind.col = co;
         ind.invalidate();
+        boolean nw = key != dsk; // a new slide or view: show the dots for a moment
+        dsk = key;
+        if (nw && vn > 1) {
+            ind.removeCallbacks(dfd);
+            ind.animate().cancel();
+            ind.setAlpha(1);
+            ind.postDelayed(dfd, 1500);
+        }
         cf.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);
         c.mode = mode;
         c.n = cnt;
@@ -1042,8 +1052,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         setTaskDescription(new ActivityManager.TaskDescription(pf.isEmpty() ? null : pf)); // the name in the recent apps
     }
 
-    // Swipes (dhikr only): left = next slide (counts as done), right = previous slide,
-    // up / down = next / previous view. A recognised swipe never counts as a tap or a hold.
+    // Swipes (dhikr only), like reels: up = next slide (counts as done), down = previous slide,
+    // left / right = next / previous view. A recognised swipe never counts as a tap or a hold.
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
         if (fo != null && fo.getVisibility() == View.VISIBLE) return super.dispatchTouchEvent(e); // the focus sheet: only it gets touches
         if (sp != null && sp.getVisibility() == View.VISIBLE) { // the theme strip is up: only it gets touches
@@ -1082,7 +1092,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     void swipe(float dx, float dy) {
         boolean h = Math.abs(dx) > Math.abs(dy);
-        final int t = h ? (dx < 0 ? 0 : 1) : (dy < 0 ? 2 : 3); // 0 next slide, 1 previous slide, 2 next view, 3 previous view
+        final int t = h ? (dx < 0 ? 2 : 3) : (dy < 0 ? 0 : 1); // 0 next slide, 1 previous slide, 2 next view, 3 previous view
         int s = slide(), k = pr.c.length;
         if (t == 0 && s >= k || t > 1 && (s >= k || pr.v[s].length < 2)) return;
         z(t == 0 && s + 1 >= k ? vl : vt);
@@ -1092,8 +1102,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             draw();
         };
         if (cv) r.run();
-        else if (h) flip(dx < 0 ? -1 : 1, 0, r);
-        else flipV(dy < 0 ? -1 : 1, r);
+        else if (h) flipH(dx < 0 ? -1 : 1, r);
+        else flip(0, dy < 0 ? -1 : 1, r);
     }
 
     // slide changes keep the counts of every slide
@@ -1142,22 +1152,22 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         lay.setAlpha(1);
         lay.setTranslationX(shx);
         lay.setTranslationY(shy);
-        dl.setTranslationY(0);
+        dl.setTranslationX(0);
         dl.setAlpha(1);
     }
 
-    // Vertical swipe: only the dhikr text block moves; the title, the number and the footer
-    // stay where they are.
-    void flipV(float fy, Runnable change) {
-        final float h = dl.getHeight() * .3f * fy;
+    // Horizontal swipe (another view of the slide): only the dhikr text block moves; the title,
+    // the number and the footer stay where they are.
+    void flipH(float fx, Runnable change) {
+        final float w = dl.getWidth() * .3f * fx;
         pend = change;
-        dl.animate().translationY(h).alpha(0).setDuration(100).withEndAction(() -> {
+        dl.animate().translationX(w).alpha(0).setDuration(100).withEndAction(() -> {
             Runnable r = pend;
             pend = null;
             if (r != null) r.run();
-            dl.setTranslationY(-h);
+            dl.setTranslationX(-w);
             dl.setAlpha(0);
-            dl.animate().translationY(0).alpha(1).setDuration(140);
+            dl.animate().translationX(0).alpha(1).setDuration(140);
         });
     }
 
@@ -2274,11 +2284,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
 
         @Override protected void onDraw(Canvas c) {
-            float u = getResources().getDisplayMetrics().density, pitch = 16 * u;
-            float y = (getHeight() - (n - 1) * pitch) / 2f;
+            float u = getResources().getDisplayMetrics().density;
+            float pitch = Math.min(16 * u, (getWidth() - 8 * u) / Math.max(1, n));
+            float x = (getWidth() - (n - 1) * pitch) / 2f;
             for (int i = 0; i < n; i++) {
                 p.setColor(i == cur ? col : off);
-                c.drawCircle(getWidth() - 10 * u, y + i * pitch, (i == cur ? 4 : 3) * u, p);
+                c.drawCircle(x + i * pitch, getHeight() / 2f, (i == cur ? 4 : 3) * u, p);
             }
         }
     }

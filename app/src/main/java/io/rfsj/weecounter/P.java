@@ -68,10 +68,10 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
                 + "that is counted 33 times (0 skips it, 1 shows it once). The lines below it, up to the "
                 + "next --- line, are shown above the number. A line can start with [70] to give it that relative size "
                 + "of the text ([_] = what is left, [10] alone = a gap, [] hides it). Write alternatives "
-                + "of a line with | (Arabic | transliteration | meaning): swipe up or down to switch. "
+                + "of a line with | (Arabic | transliteration | meaning): swipe left or right to switch. "
                 + "A line # Title names the slide (own element on screen, and in the Goto list of the menu). "
                 + "The lines of a view are one block of text: line breaks are kept when there is room and "
-                + "shown as an arrow glyph otherwise. Swipe left for the next slide, right to go back. "
+                + "shown as an arrow glyph otherwise. Swipe up for the next slide, down to go back. "
                 + "Header lines before the first slide: @id, @version (a number), @author and @desc (a description, "
                 + "shown once when the profile is first opened; hold a profile here to see it again). "
                 + "Profiles are .dhikr files: share one to this app from any other app to import it.", th.dim));
