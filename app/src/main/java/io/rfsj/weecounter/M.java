@@ -1461,7 +1461,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     void menu(View anchor) {
         PopupMenu m = new PopupMenu(new ContextThemeWrapper(this, th.light ? android.R.style.Theme_DeviceDefault_Light
                 : android.R.style.Theme_DeviceDefault), anchor);
-        if (!pf.isEmpty()) m.getMenu().add(0, 6, -1, sm ? "Profile mode: " + pf : "Simple mode");
+        // (an order below 0 is not allowed: the menu throws)
+        if (!pf.isEmpty()) m.getMenu().add(0, 6, 0, sm ? "Profile mode: " + pf : "Simple mode");
         m.getMenu().add(0, 1, 0, "Settings");
         m.getMenu().add(0, 2, 1, "Profiles");
         m.getMenu().add(0, 3, 2, "Edit layout");
