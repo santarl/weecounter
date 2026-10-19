@@ -200,8 +200,15 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
             String s = e.getText().toString().trim();
             Intent i = new Intent(this, M.class).setAction(Intent.ACTION_VIEW)
                     .setData(Uri.parse("wee://profile/" + Uri.encode(k)));
-            sm.requestPinShortcut(new ShortcutInfo.Builder(this, "p:" + k + ":" + System.currentTimeMillis()) // a new id every time: the launcher shows the icon of an existing id.setShortLabel(k).setLongLabel(k)
-                    .setIcon(Icon.createWithAdaptiveBitmap(icon(s.isEmpty() ? "?" : s, t))).setIntent(i).build(), null);
+            String lb = k.isEmpty() ? "weecounter" : k; // a shortcut needs a label
+            try {
+                // a new id every time: the launcher shows the icon of an existing id
+                sm.requestPinShortcut(new ShortcutInfo.Builder(this, "p:" + k + ":" + System.currentTimeMillis())
+                        .setShortLabel(lb).setLongLabel(lb)
+                        .setIcon(Icon.createWithAdaptiveBitmap(icon(s.isEmpty() ? "?" : s, t))).setIntent(i).build(), null);
+            } catch (RuntimeException x) { // the launcher or the system refused it: no crash
+                Toast.makeText(this, "Could not add the shortcut", Toast.LENGTH_SHORT).show();
+            }
         }).setNegativeButton("Cancel", null).show();
     }
 
