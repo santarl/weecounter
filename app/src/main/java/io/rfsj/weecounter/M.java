@@ -1189,6 +1189,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         xs = new ScrollView(this);
         xs.setFillViewport(true); // a short text is centred
         xs.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        xs.setScrollbarFadingEnabled(false); // the bar stays while the text is longer than the screen
         if (Build.VERSION.SDK_INT >= 29) { // a thin bar in the colour of the theme
             GradientDrawable g = new GradientDrawable();
             g.setColor((th.dim & 0xFFFFFF) | 0x99000000);
@@ -1284,7 +1285,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         xt.setText(use);
         xt.setTextSize(TypedValue.COMPLEX_UNIT_PX, xbs * xz);
         xs.scrollTo(0, 0);
-        xs.post(() -> xs.awakenScrollBars());
     }
 
     // the expanded view's buttons: 0 next slide, 1 previous slide (the same as a swipe up / down)
