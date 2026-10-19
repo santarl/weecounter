@@ -215,7 +215,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
     // forget the text sizes pinched on dhikr slides
     void clearZ() {
         SharedPreferences.Editor e = p.edit();
-        for (String k : p.getAll().keySet()) if (k.startsWith("fz:")) e.remove(k);
+        for (String k : p.getAll().keySet()) if (k.startsWith("fz:") || k.startsWith("fx:")) e.remove(k);
         e.apply();
     }
 

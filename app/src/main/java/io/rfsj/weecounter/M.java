@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.RectF;
 import android.media.AudioAttributes;
 import android.net.Uri;
@@ -127,6 +128,16 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     FrameLayout fo;  // the focus sheet (the focus button), null until first opened
     ScaleGestureDetector sd; // pinch to resize the dhikr text of a slide / view
     float zs;        // text scale while pinching
+    float zmx = 1;   // the largest scale at which the text still fits its rectangle (the limit of a pinch)
+    boolean ful;     // the text fills its rectangle (cannot grow): the expand button shows
+    Gl xb;           // the expand button, at the bottom right of the text rectangle
+    // expanded reading mode: the dhikr text over the whole screen
+    FrameLayout xo;
+    ScrollView xs;
+    TextView xt, xc;             // the text, and the count in the middle button
+    ScaleGestureDetector xsd;    // pinch in the expanded mode
+    float xz, xbs;               // its pinch scale and standard size
+    int xkey = -9;               // the dhikr text (slide * 64 + view) it shows
     float spx;       // px per sp
     float bs;        // standard size (px, before scaling) of the shown dhikr text block
     float tx, ty;    // where the current touch started
@@ -405,6 +416,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         dl.setOnClickListener(this);     // a tap still counts, hold toggles the counting view like anywhere else
         dl.setOnLongClickListener(this);
         lay.addView(dl);
+        xb = new Gl(this, 0);             // shown only when the text fills its rectangle
+        xb.setVisibility(View.GONE);
+        xb.setOnClickListener(v -> expand());
+        lay.addView(xb, new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP | Gravity.START));
         bot = new LinearLayout(this);
         bot.setOrientation(LinearLayout.VERTICAL);
         bot.setGravity(Gravity.CENTER);
@@ -721,6 +736,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 tv.setTextSize(TypedValue.COMPLEX_UNIT_PX, sz);
         }
         x.setLayoutParams(lp);
+        if (i == 4) { // the expand button sits in the bottom right corner of the text
+            FrameLayout.LayoutParams xp = new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP | Gravity.START);
+            xp.leftMargin = (int) (r.right - dp(46));
+            xp.topMargin = (int) (r.bottom - dp(46));
+            xb.setLayoutParams(xp);
+        }
         if (i == 8) { // the view dots sit just above the slide title, centred on it
             FrameLayout.LayoutParams ip = (FrameLayout.LayoutParams) ind.getLayoutParams();
             ip.leftMargin = (int) Math.max(0, r.centerX() - ip.width / 2f);
@@ -821,6 +842,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     @Override public void onBackPressed() {
+        if (xo != null && xo.getVisibility() == View.VISIBLE) {
+            collapse();
+            return;
+        }
         if (fo != null && fo.getVisibility() == View.VISIBLE) {
             fo.setVisibility(View.GONE);
             return;
@@ -840,8 +865,25 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // pinched for this slide and view (as far as it fits).
     void lines(String[] tx, float[] w, float z) {
         RectF r = er[4];
-        int W = (int) r.width() - dp(16), last = -1;
-        float area = r.height() - dp(16), cap = 34 * spx, wmax = 1;
+        int W = (int) r.width() - dp(16);
+        float area = r.height() - dp(16);
+        float[] o = new float[1];
+        CharSequence use = block(tx, w, W, area, 34 * spx, o);
+        bs = o[0];
+        dl.setText(use);
+        float top = fit(use, W, area, bs * 2.5f); // the largest size that still fits: the limit of a pinch
+        zmx = Math.max(1f, top / bs);
+        float fs = fit(use, W, area, bs * z);
+        dl.setTextSize(TypedValue.COMPLEX_UNIT_PX, fs);
+        ful = fs >= top * .98f; // the text fills its rectangle and cannot grow: offer the expanded view
+        lay.requestLayout();
+    }
+
+    // The text block of a view for a box of W x area px: the variant that is used (hard line breaks
+    // kept, or the lines run together) and, in size[0], the largest size (at most cap) it has there.
+    CharSequence block(String[] tx, float[] w, int W, float area, float cap, float[] size) {
+        int last = -1;
+        float wmax = 1;
         for (float x : w) wmax = Math.max(wmax, x);
         for (int i = 0; i < tx.length; i++) if (!tx[i].isEmpty()) last = i;
         SpannableStringBuilder brk = new SpannableStringBuilder(), flo = new SpannableStringBuilder();
@@ -862,11 +904,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
         float sb = fit(brk, W, area, cap), sf = fit(flo, W, area, cap);
         boolean keep = tx.length < 2 || sb >= sf * .85f;
-        CharSequence use = keep ? brk : flo;
-        bs = keep ? sb : sf;
-        dl.setText(use);
-        dl.setTextSize(TypedValue.COMPLEX_UNIT_PX, fit(use, W, area, bs * z));
-        lay.requestLayout();
+        size[0] = keep ? sb : sf;
+        return keep ? brk : flo;
     }
 
     // largest size (px, at most max) at which s, wrapped to w px, stays within h px (3% spare)
@@ -944,12 +983,21 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             lines(tx, tw, zz);
         }
         boolean dk = pr != null || demo;
+        xb.setVisibility(ful && pr != null && !edit && slide() < pr.c.length ? View.VISIBLE : View.GONE);
         pg.setText(prog);
         ttl.setText(title);
         dl.setVisibility(dk ? View.VISIBLE : View.GONE);
         int co = cl[ci % cl.length];
         t.setText(big);
         t.setTextColor(co);
+        if (xo != null && xo.getVisibility() == View.VISIBLE) { // the expanded view follows the slide
+            if (pr == null || slide() >= pr.c.length) collapse();
+            else {
+                xc.setText(big);
+                xc.setTextColor(co);
+                xfill(key, tx, tw, ve);
+            }
+        }
         vw.setText("focus");
         dt.setText(DT[dnOn ? p.getInt("dn", 0) : (edit ? 1 : 0)]);
         for (View x : ui) x.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);
@@ -998,6 +1046,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         for (TextView x : new TextView[]{se, rs, dn, vw}) x.setTextColor(th.dim);
         // the elements have the colour of the screen behind them, so a sliding slide text goes under them
         for (View x : new View[]{se, rs, dn, vw, pg, ttl, dt, bot}) x.setBackgroundColor(th.bg);
+        xb.col = th.dim;
+        xb.setBackground(chip(0xE0, 20));
+        xb.invalidate();
         ind.off = (th.dim & 0xFFFFFF) | 0x66000000;
     }
 
@@ -1064,6 +1115,30 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             if (e.getActionMasked() == MotionEvent.ACTION_UP) sp.setVisibility(View.GONE); // a tap outside closes it
             return true;
         }
+        if (xo != null && xo.getVisibility() == View.VISIBLE) { // expanded: scrolling, pinching and view swipes only
+            xsd.onTouchEvent(e);
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    tx = e.getX();
+                    ty = e.getY();
+                    sw = false;
+                    break;
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    sw = true; // a second finger is a pinch: no view swipe
+                    break;
+                case MotionEvent.ACTION_MOVE: {
+                    if (sw || xsd.isInProgress()) break;
+                    float dx = e.getX() - tx, dy = e.getY() - ty;
+                    if (Math.abs(dx) > dp(72) && Math.abs(dx) > 2 * Math.abs(dy)) { // mostly sideways
+                        sw = true;
+                        xview(dx < 0 ? 2 : 3);
+                        e.setAction(MotionEvent.ACTION_CANCEL); // the scroll view drops the touch
+                    }
+                    break;
+                }
+            }
+            return super.dispatchTouchEvent(e);
+        }
         if (pr != null && !edit) {
             sd.onTouchEvent(e);
             if (e.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN && !sw) {
@@ -1091,6 +1166,143 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             }
         }
         return super.dispatchTouchEvent(e);
+    }
+
+    // A translucent rounded background for the floating buttons (alpha 0..255, corner radius in dp)
+    GradientDrawable chip(int alpha, int rdp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor((Th.mix(th.bg, th.fg, .12f) & 0xFFFFFF) | (alpha << 24));
+        g.setCornerRadius(dp(rdp));
+        return g;
+    }
+
+    // Expanded reading mode: the text of the current slide and view over the whole screen, so a long
+    // text can be read larger. One finger scrolls, two pinch, a swipe left / right shows the other
+    // views; the buttons at the bottom go to the previous slide, count and go to the next slide
+    // (a tap on the text does not count here); the glyph at the top right, or Back, leaves it.
+    void expand() {
+        if (pr == null || slide() >= pr.c.length) return;
+        if (xo != null) f.removeView(xo);
+        xo = new FrameLayout(this);
+        xo.setBackgroundColor(th.bg);
+        xo.setClickable(true); // nothing under it gets a touch
+        xs = new ScrollView(this);
+        xs.setFillViewport(true); // a short text is centred
+        xs.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        if (Build.VERSION.SDK_INT >= 29) { // a thin bar in the colour of the theme
+            GradientDrawable g = new GradientDrawable();
+            g.setColor((th.dim & 0xFFFFFF) | 0x99000000);
+            g.setCornerRadius(dp(2));
+            xs.setVerticalScrollbarThumbDrawable(g);
+            xs.setScrollBarSize(dp(3));
+        }
+        xt = new TextView(this);
+        xt.setGravity(Gravity.CENTER);
+        xt.setTextColor(th.fg);
+        xt.setPadding(dp(16), dp(64), dp(16), dp(110)); // room for the glyph and the buttons
+        xs.addView(xt, new FrameLayout.LayoutParams(-1, -2));
+        xo.addView(xs, new FrameLayout.LayoutParams(-1, -1));
+
+        Gl ex = new Gl(this, 1); // leave: the corners point inwards
+        ex.col = th.fg;
+        ex.setBackground(chip(0xE0, 22));
+        ex.setOnClickListener(v -> collapse());
+        FrameLayout.LayoutParams ep = new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP | Gravity.END);
+        ep.topMargin = dp(12);
+        ep.rightMargin = dp(12);
+        xo.addView(ex, ep);
+
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER);
+        Gl up = new Gl(this, 2), down = new Gl(this, 3); // the slide goes up / down, like a swipe
+        up.col = th.fg;
+        down.col = th.fg;
+        up.setBackground(chip(0xF0, 28));
+        down.setBackground(chip(0xF0, 28));
+        up.setOnClickListener(v -> step(1));
+        down.setOnClickListener(v -> step(0));
+        xc = new TextView(this);
+        xc.setGravity(Gravity.CENTER);
+        xc.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        xc.getPaint().setFakeBoldText(true);
+        xc.setMinWidth(dp(128));
+        xc.setPadding(dp(20), 0, dp(20), 0);
+        xc.setBackground(chip(0xF0, 28));
+        xc.setOnClickListener(v -> inc());
+        LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(dp(56), dp(56));
+        LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(-2, dp(56));
+        LinearLayout.LayoutParams p3 = new LinearLayout.LayoutParams(dp(56), dp(56));
+        p1.setMargins(dp(8), 0, dp(8), 0);
+        p2.setMargins(dp(8), 0, dp(8), 0);
+        p3.setMargins(dp(8), 0, dp(8), 0);
+        bar.addView(up, p1);
+        bar.addView(xc, p2);
+        bar.addView(down, p3);
+        FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        bp.bottomMargin = dp(28);
+        xo.addView(bar, bp);
+
+        xsd = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            @Override public boolean onScale(ScaleGestureDetector d) {
+                xz = Math.max(.5f, Math.min(3f, xz * d.getScaleFactor()));
+                xt.setTextSize(TypedValue.COMPLEX_UNIT_PX, xbs * xz);
+                return true;
+            }
+
+            @Override public void onScaleEnd(ScaleGestureDetector d) {
+                p.edit().putFloat(xk(), xz).apply();
+            }
+        });
+        xkey = -9;
+        f.addView(xo, new FrameLayout.LayoutParams(-1, -1));
+        draw(); // fills it
+    }
+
+    void collapse() {
+        if (xo != null) xo.setVisibility(View.GONE);
+        xkey = -9;
+    }
+
+    // the saved pinch scale of the expanded view, per slide and view
+    String xk() {
+        return "fx:" + zk().substring(3);
+    }
+
+    // the text of the current slide and view in the expanded view: as big as fits the screen (at most
+    // 72sp) times the scale pinched there; a longer text scrolls
+    void xfill(int key, String[] tx, float[] tw, int ve) {
+        if (key == xkey) return;
+        xkey = key;
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int W = dm.widthPixels - 2 * dp(16);
+        float area = dm.heightPixels - dp(64) - dp(110);
+        float[] o = new float[1];
+        CharSequence use = block(tx, tw, W, area, 72 * spx, o);
+        xbs = o[0];
+        xz = p.getFloat(xk(), 1f);
+        xt.setText(use);
+        xt.setTextSize(TypedValue.COMPLEX_UNIT_PX, xbs * xz);
+        xs.scrollTo(0, 0);
+        xs.post(() -> xs.awakenScrollBars());
+    }
+
+    // the expanded view's buttons: 0 next slide, 1 previous slide (the same as a swipe up / down)
+    void step(int t) {
+        if (pr == null || slide() >= pr.c.length) return;
+        z(t == 0 && slide() + 1 >= pr.c.length ? vl : vt);
+        land();
+        apply(t);
+        draw();
+    }
+
+    // a swipe left / right in the expanded view: the next / previous view of the slide
+    void xview(int t) {
+        if (pr == null || slide() >= pr.c.length || pr.v[slide()].length < 2) return;
+        z(vt);
+        land();
+        apply(t);
+        draw();
     }
 
     void swipe(float dx, float dy) {
@@ -1621,12 +1833,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     @Override public boolean onScaleBegin(ScaleGestureDetector d) {
         if (pr == null || cv || slide() >= pr.c.length) return false;
-        zs = p.getFloat(zk(), 1f);
+        zs = Math.min(p.getFloat(zk(), 1f), zmx);
         return true;
     }
 
     @Override public boolean onScale(ScaleGestureDetector d) {
-        zs = Math.max(.4f, Math.min(2.5f, zs * d.getScaleFactor()));
+        zs = Math.max(.4f, Math.min(Math.min(2.5f, zmx), zs * d.getScaleFactor()));
         dl.setTextSize(TypedValue.COMPLEX_UNIT_PX, bs * zs);
         return true;
     }
@@ -2278,6 +2490,47 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 p.setColor(i == cur ? col : off);
                 c.drawCircle(x + i * pitch, getHeight() / 2f, (i == cur ? 4 : 3) * u, p);
             }
+        }
+    }
+
+    // Small line glyphs: 0 expand (corners pointing out), 1 leave the expanded view (corners pointing
+    // in), 2 chevron up, 3 chevron down. Colour in col, size from the view.
+    static class Gl extends View {
+        final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        final Path q = new Path();
+        final int type;
+        int col = 0xFFFFFFFF;
+
+        Gl(Context c, int t) {
+            super(c);
+            type = t;
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeCap(Paint.Cap.ROUND);
+            p.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            float u = getResources().getDisplayMetrics().density, s = Math.min(getWidth(), getHeight());
+            float cx = getWidth() / 2f, cy = getHeight() / 2f;
+            p.setColor(col);
+            p.setStrokeWidth(2.2f * u);
+            q.reset();
+            if (type < 2) {
+                float b = type == 0 ? s * .2f : s * .08f, l = s * .14f, d = type == 0 ? -1 : 1;
+                for (int sx = -1; sx <= 1; sx += 2)
+                    for (int sy = -1; sy <= 1; sy += 2) {
+                        float px = cx + sx * b, py = cy + sy * b;
+                        q.moveTo(px, py + sy * d * l);
+                        q.lineTo(px, py);
+                        q.lineTo(px + sx * d * l, py);
+                    }
+            } else {
+                float w = s * .2f, h = s * .1f, v = type == 2 ? -1 : 1; // up: the tip is at the top
+                q.moveTo(cx - w, cy - v * h);
+                q.lineTo(cx, cy + v * h);
+                q.lineTo(cx + w, cy - v * h);
+            }
+            c.drawPath(q, p);
         }
     }
 
