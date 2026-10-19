@@ -22,6 +22,7 @@ A tiny tap counter for AMOLED screens. Pure Java, no libraries, tiny APK. The on
 - **Tap** anywhere: count up, short vibration.
 - **Hold** anywhere: switch between the panel (number and buttons) and the counting view.
 - **Panel:** `-1` bottom left, `reset` top right (a tap explains, hold resets), `menu` top left (settings, profiles, edit layout, reset layout), `view` bottom right cycles the counting view. The `-1` and `view` buttons reach down to the screen edge.
+- **Focus:** the **focus** button on the panel opens a sheet with the selector of the counting view and a slider: hold the knob and push it to the end to go into focus; hold anywhere to leave it. (A hold on the panel does not go into focus any more.)
 - **Counting views:** blackout (pure black), dots, tally, game (a snake that plays itself: every tap drops an apple, it eats it and grows a block). Dots and tally take the number's colour: they fill one mark per tap, then drain one mark per tap (earliest first) until the next lap (every 100 by default), which changes the colour, buzzes and starts over. Counting never stops; an optional "count reached" target buzzes once when you hit it.
 - **Volume buttons** (optional, off by default): count with the volume keys, e.g. both add one, or up adds and down subtracts. Set in settings.
 - **Vibration patterns** are plain milliseconds, alternating buzz and pause: `40 60 40` = buzz 40, pause 60, buzz 40. Empty = off.

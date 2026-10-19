@@ -1,6 +1,7 @@
 package io.rfsj.weecounter;
 
 import android.app.Activity;
+import android.animation.ValueAnimator;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.NotificationManager;
@@ -121,6 +122,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     LinearLayout sp; // the theme strip (menu > Theme), null until first opened
     GestureDetector sg; // swipes on the strip
     HorizontalScrollView hs; // its row of palettes
+    FrameLayout fo;  // the focus sheet (the focus button), null until first opened
     ScaleGestureDetector sd; // pinch to resize the dhikr text of a slide / view
     float zs;        // text scale while pinching
     float spx;       // px per sp
@@ -816,6 +818,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     @Override public void onBackPressed() {
+        if (fo != null && fo.getVisibility() == View.VISIBLE) {
+            fo.setVisibility(View.GONE);
+            return;
+        }
         if (sp != null && sp.getVisibility() == View.VISIBLE) {
             sp.setVisibility(View.GONE);
             return;
@@ -941,7 +947,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         int co = cl[ci % cl.length];
         t.setText(big);
         t.setTextColor(co);
-        vw.setText("view: " + NM[mode]);
+        vw.setText("focus");
         dt.setText(DT[dnOn ? p.getInt("dn", 0) : (edit ? 1 : 0)]);
         for (View x : ui) x.setVisibility(cv ? View.INVISIBLE : View.VISIBLE);
         f.setBackgroundColor(cv && mode == 0 ? 0xFF000000 : th.bg); // blackout stays black
@@ -1039,6 +1045,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // Swipes (dhikr only): left = next slide (counts as done), right = previous slide,
     // up / down = next / previous view. A recognised swipe never counts as a tap or a hold.
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
+        if (fo != null && fo.getVisibility() == View.VISIBLE) return super.dispatchTouchEvent(e); // the focus sheet: only it gets touches
         if (sp != null && sp.getVisibility() == View.VISIBLE) { // the theme strip is up: only it gets touches
             if (e.getY() >= sp.getTop()) return super.dispatchTouchEvent(e);
             if (e.getActionMasked() == MotionEvent.ACTION_UP) sp.setVisibility(View.GONE); // a tap outside closes it
@@ -1177,6 +1184,125 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             best = Math.min(best, r[n]);
         }
         return best > tol ? -1 : 1000 - 300 * best;
+    }
+
+    // The focus button: a sheet with the selector of the counting view and a slider; hold the knob
+    // and push it to the end to go into focus (hold anywhere to leave it again).
+    void focusSheet() {
+        if (fo != null) f.removeView(fo);
+        fo = new FrameLayout(this);
+        fo.setBackgroundColor((th.bg & 0xFFFFFF) | 0xEE000000);
+        fo.setOnClickListener(v -> fo.setVisibility(View.GONE)); // a tap outside the card
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setClickable(true);
+        card.setPadding(dp(20), dp(20), dp(20), dp(12));
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(Th.mix(th.bg, th.fg, .08f));
+        g.setCornerRadius(dp(20));
+        card.setBackground(g);
+        TextView t1 = new TextView(this);
+        t1.setText("focus");
+        t1.setTextSize(22);
+        t1.setTextColor(th.fg);
+        card.addView(t1);
+        TextView t2 = new TextView(this);
+        t2.setText("Counts on the view you pick, nothing else on the screen. Hold anywhere to leave it.");
+        t2.setTextSize(14);
+        t2.setTextColor(th.dim);
+        t2.setPadding(0, dp(6), 0, dp(10));
+        card.addView(t2);
+        final TextView vb = sb("view: " + NM[mode], th.ac, null);
+        vb.setTextSize(18);
+        vb.setOnClickListener(v -> {
+            mode = (mode + 1) % NM.length;
+            z(vt);
+            vb.setText("view: " + NM[mode]);
+            draw();
+        });
+        card.addView(vb);
+        card.addView(new Sl(this, () -> {
+            fo.setVisibility(View.GONE);
+            cv = true;
+            z(vh);
+            draw();
+        }), new LinearLayout.LayoutParams(-1, dp(64)));
+        TextView no = sb("cancel", th.dim, v -> fo.setVisibility(View.GONE));
+        no.setGravity(Gravity.CENTER);
+        card.addView(no);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER);
+        lp.setMargins(dp(24), 0, dp(24), 0);
+        fo.addView(card, lp);
+        f.addView(fo, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    // "hold and push" slider: drag the knob from the left end to the right end to run go
+    static class Sl extends View {
+        final M m;
+        final Runnable go;
+        final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        float x; // knob position, 0 to 1
+        boolean drag;
+
+        Sl(M m, Runnable go) {
+            super(m);
+            this.m = m;
+            this.go = go;
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            float h = getHeight(), r = h / 2 - m.dp(6), w = getWidth() - 2 * r - m.dp(12), cx = r + m.dp(6) + x * w, cy = h / 2;
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Th.mix(m.th.bg, m.th.fg, .15f));
+            c.drawRoundRect(m.dp(2), cy - r - m.dp(4), getWidth() - m.dp(2), cy + r + m.dp(4), h, h, p);
+            p.setColor((m.th.ac & 0xFFFFFF) | 0x66000000);
+            c.drawRoundRect(m.dp(2), cy - r - m.dp(4), cx + r + m.dp(4), cy + r + m.dp(4), h, h, p);
+            p.setColor(m.th.dim);
+            p.setAlpha((int) (255 * (1 - x)));
+            p.setTextAlign(Paint.Align.CENTER);
+            p.setTextSize(15 * m.spx);
+            c.drawText("hold the knob and push to focus", getWidth() / 2f + r, cy + m.dp(5), p);
+            p.setColor(m.th.ac);
+            c.drawCircle(cx, cy, r, p);
+            p.setColor(m.th.bg);
+            p.setTextSize(22 * m.spx);
+            c.drawText("\u203A", cx, cy + m.dp(7), p);
+        }
+
+        @Override public boolean onTouchEvent(MotionEvent e) {
+            float r = getHeight() / 2f - m.dp(6), w = getWidth() - 2 * r - m.dp(12), cx = r + m.dp(6) + x * w;
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    drag = Math.abs(e.getX() - cx) < r * 1.7f; // only the knob
+                    if (drag) getParent().requestDisallowInterceptTouchEvent(true);
+                    return drag;
+                case MotionEvent.ACTION_MOVE:
+                    if (!drag) return false;
+                    x = Math.max(0, Math.min(1, (e.getX() - r - m.dp(6)) / w));
+                    invalidate();
+                    if (x >= .97f) { // all the way
+                        drag = false;
+                        x = 0;
+                        performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+                        go.run();
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (drag) { // not far enough: the knob goes back
+                        drag = false;
+                        ValueAnimator a = ValueAnimator.ofFloat(x, 0).setDuration(150);
+                        a.addUpdateListener(v -> {
+                            x = (float) v.getAnimatedValue();
+                            invalidate();
+                        });
+                        a.start();
+                    }
+                    return true;
+                default:
+                    return drag;
+            }
+        }
     }
 
     // menu "Theme": a strip at the bottom over the live screen. Tap a palette, or swipe the strip left
@@ -1526,9 +1652,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             return;
         }
         if (x == vw) {
-            mode = (mode + 1) % 4;
-            z(vt);
-            draw();
+            focusSheet();
             return;
         }
         if (x == dn) dec();
@@ -1647,8 +1771,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             }
             cf.t0 = 0;
             z(vr);
-        } else {
-            cv = !cv;
+        } else if (cv) { // a hold leaves focus; the way in is the slider of the focus sheet
+            cv = false;
             z(vh);
         }
         draw();
