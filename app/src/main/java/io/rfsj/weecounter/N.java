@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
+import android.app.NotificationChannelGroup;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.TimePickerDialog;
@@ -43,7 +44,7 @@ import org.json.JSONObject;
 // notification, sets the next alarm, and sets all of them again after a reboot, an update or a
 // change of the clock or time zone.
 public class N extends Activity {
-    static final String CH = "r", REMIND = "io.rfsj.weecounter.REMIND", DISMISS = "io.rfsj.weecounter.DISMISS";
+    static final String REMIND = "io.rfsj.weecounter.REMIND", DISMISS = "io.rfsj.weecounter.DISMISS";
     static final int[] DOW = {2, 3, 4, 5, 6, 7, 1}; // Monday to Sunday as Calendar numbers
     static final String[] DN = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
 
@@ -119,13 +120,34 @@ public class N extends Activity {
         for (int i = 0; i < a.length(); i++) plan(c, a.optJSONObject(i));
     }
 
-    // takes a reminder away: its alarm and its notification
-    static void drop(Context c, int id) {
+    // stops a reminder: its alarm and its notification
+    static void stop(Context c, int id) {
         c.getSystemService(AlarmManager.class).cancel(pi(c, REMIND, id, 0));
         c.getSystemService(NotificationManager.class).cancel(id);
         SharedPreferences p = c.getSharedPreferences("p", 0);
         ArrayList<Integer> l = act(p);
         if (l.remove((Integer) id)) act(p, l);
+    }
+
+    // takes a reminder away for good: also its notification channel
+    static void drop(Context c, int id) {
+        stop(c, id);
+        c.getSystemService(NotificationManager.class).deleteNotificationChannel("r" + id);
+    }
+
+    // Every reminder has a notification channel of its own, so that each one can get its own sound,
+    // vibration and importance in the settings of the phone. A channel that exists keeps what the
+    // user chose; only its name follows the reminder.
+    static String chan(Context c, JSONObject o) {
+        NotificationManager nm = c.getSystemService(NotificationManager.class);
+        nm.deleteNotificationChannel("r"); // the one channel of the first version
+        nm.createNotificationChannelGroup(new NotificationChannelGroup("g", "Reminders"));
+        String pf = o.optString("p");
+        NotificationChannel ch = new NotificationChannel("r" + o.optInt("i"), (pf.isEmpty() ? "Plain counter" : pf)
+                + " " + hm(o.optInt("h"), o.optInt("m")) + " " + days(o.optInt("d")), NotificationManager.IMPORTANCE_DEFAULT);
+        ch.setGroup("g");
+        nm.createNotificationChannel(ch);
+        return "r" + o.optInt("i");
     }
 
     static Icon small() {
@@ -150,10 +172,9 @@ public class N extends Activity {
         boolean keep = o.optBoolean("k");
         if (!pf.isEmpty() && !c.getSharedPreferences("d", 0).contains(pf)) return; // its profile is gone
         NotificationManager nm = c.getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel(CH, "Reminders", NotificationManager.IMPORTANCE_DEFAULT));
         Intent go = new Intent(c, M.class).setAction(Intent.ACTION_VIEW).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .setData(Uri.parse(pf.isEmpty() ? "wee://simple" : "wee://profile/" + Uri.encode(pf)));
-        Notification.Builder b = new Notification.Builder(c, CH).setSmallIcon(small())
+        Notification.Builder b = new Notification.Builder(c, chan(c, o)).setSmallIcon(small())
                 .setContentTitle(pf.isEmpty() ? "weecounter" : pf)
                 .setContentText(pf.isEmpty() ? (keep ? "Time to count. Finish a lap to clear this." : "Time to count.")
                         : (keep ? "Time for your dhikr. Finish the profile to clear this." : "Time for your dhikr."))
@@ -219,7 +240,8 @@ public class N extends Activity {
         l.setPadding(m, m, m, m);
         l.addView(tv("A notification at a time of day, for a profile or for the plain counter. \"Keep until done\" "
                 + "makes it stay in the notification bar (it comes back if swiped away) until you finish the profile, "
-                + "or, for the plain counter, a lap.", th.dim, 14));
+                + "or, for the plain counter, a lap. \"alert\" opens the sound, vibration and importance of that "
+                + "reminder in the settings of the phone.", th.dim, 14));
         nt = new LinearLayout(this);
         nt.setOrientation(LinearLayout.VERTICAL);
         l.addView(nt);
@@ -317,12 +339,14 @@ public class N extends Activity {
         n.addView(tv(hm(o.optInt("h"), o.optInt("m")) + "  " + days(o.optInt("d")) + "  "
                 + (o.optBoolean("k") ? "kept until done" : "can be swiped away"), th.dim, 13));
         r.addView(n, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView e = tv("edit", th.dim, 15), c = tv("copy", th.dim, 15), x = tv("\u2715", th.bad, 22);
-        for (TextView t : new TextView[]{e, c, x}) {
+        TextView e = tv("edit", th.dim, 15), c = tv("copy", th.dim, 15), al = tv("alert", th.dim, 15), x = tv("\u2715", th.bad, 22);
+        for (TextView t : new TextView[]{e, c, al, x}) {
             t.setPadding(dp(10), dp(14), dp(10), dp(14));
             r.addView(t);
         }
         e.setOnClickListener(v -> form(o, pf));
+        al.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS) // sound, vibration, importance of this reminder
+                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()).putExtra(Settings.EXTRA_CHANNEL_ID, chan(this, o))));
         c.setOnClickListener(v -> {
             JSONArray a = all(p);
             try {
@@ -331,6 +355,7 @@ public class N extends Activity {
                 p.edit().putInt("rn", p.getInt("rn", 1) + 1).apply();
                 a.put(k);
                 p.edit().putString("rm", a.toString()).apply();
+                chan(this, k);
                 plan(this, k);
             } catch (Exception ex) {
                 // not saved
@@ -438,7 +463,8 @@ public class N extends Activity {
                 return;
             }
             p.edit().putString("rm", a.toString()).apply();
-            if (old != null) drop(this, o.optInt("i")); // a changed reminder starts over
+            if (old != null) stop(this, o.optInt("i")); // a changed reminder starts over
+            chan(this, o); // so that it is in the settings of the phone from now on
             plan(this, o);
             if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED)
                 requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
