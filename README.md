@@ -21,7 +21,7 @@ A tiny tap counter for AMOLED screens. Pure Java, no libraries, tiny APK. The on
 
 - **Tap** anywhere: count up, short vibration.
 - **Hold** anywhere: switch between the panel (number and buttons) and the counting view.
-- **Panel:** `-1` bottom left, `reset` top right (a tap explains, hold resets), `menu` top left (settings, profiles, edit layout, reset layout), `view` bottom right cycles the counting view. The `-1` and `view` buttons reach down to the screen edge.
+- **Panel:** `-1` bottom left, `adjust` top right (opens the adjust dialog: set the count and the target, reset, undo), `menu` top left (settings, profiles, edit layout, reset layout), `view` bottom right cycles the counting view. The `-1` and `view` buttons reach down to the screen edge.
 - **Focus:** the **focus** button on the panel opens a sheet with the selector of the counting view and a slider: hold the knob and push it to the end to go into focus; hold anywhere to leave it. (A hold on the panel does not go into focus any more.)
 - **Counting views:** blackout (pure black), dots, tally, game (a snake that plays itself: every tap drops an apple, it eats it and grows a block). Dots and tally take the number's colour: they fill one mark per tap, then drain one mark per tap (earliest first) until the next lap (every 100 by default), which changes the colour, buzzes and starts over. Counting never stops; an optional "count reached" target buzzes once when you hit it.
 - **Volume buttons** (optional, off by default): count with the volume keys, e.g. both add one, or up adds and down subtracts. Set in settings.
@@ -37,7 +37,7 @@ Get the APK from the [latest release](https://github.com/santarl/weecounter/rele
 
 ## Layout editor
 
-Menu, then **Edit layout**: tap an element (menu, reset, -1, view, dhikr text, slide title, counter, footer, Do Not Disturb warning) to select it and show its bounding box. Drag inside to move it, drag an edge or a corner to resize it, or pinch to scale it. Text follows the height of its box. The layout is saved as you go. The check button (or back) leaves the editor; hold the undo button to reset the layout. **Reset layout** in the settings does the same.
+Menu, then **Edit layout**: tap an element (menu, adjust, -1, view, dhikr text, slide title, counter, footer, Do Not Disturb warning) to select it and show its bounding box. Drag inside to move it, drag an edge or a corner to resize it, or pinch to scale it. Text follows the height of its box. The layout is saved as you go. The check button (or back) leaves the editor; hold the undo button to reset the layout. **Reset layout** in the settings does the same.
 
 ## Dhikr profiles
 
@@ -76,8 +76,9 @@ a line without a bar is in every view
 - **Export** (profile screen, "export"): Share sends the profile as text through the share dialog (this app imports shared text again), Save as file writes a `.dhikr` file.
 - **Header lines** before the first slide are optional: `@id` (unique short name), `@version` (a whole number), `@author` and `@desc` (a description; repeat the line for more). The description pops up once when the profile is first opened; hold a profile on the profile screen to read it again.
 - **Browse profiles** (profile screen, "BROWSE PROFILES") lists the profiles of [santarl/dhikr-profile-repo](https://github.com/santarl/dhikr-profile-repo) with author, version and description, and downloads or updates them (your counts are kept). It fetches a single small `index.json` (cached, only re-sent when it changed), once a week by itself (settings, "Check for new profiles weekly", on by default) or by hand with CHECK NOW. A profile file is only fetched when you tap DOWNLOAD / UPDATE. The only other network use is the manual update check.
+- **Adjust** (the button at the top right; a hold on it opens the same dialog, nothing is reset by a hold): **Count** and **Target** can be typed in (in a profile they are those of the current slide, and the target is saved like a repeat; in the plain counter the target is the goal of the settings, "Count reached at"). Setting a count does not move the slide on by itself. **Reset this slide** (or **Reset to 0**) and **Undo** act at once and the dialog stays open, so a slip can be undone; **Hold to reset the whole profile** starts the profile over (also undoable until the dialog is closed). A count or a target can be any whole number up to 999,999,999.
 - Counts are never cleared by finishing a slide or the profile. You can go back to a finished slide and keep counting past its target (shown as `40/33`); a slide only moves on by itself the first time it reaches its target.
-- On the completed screen, tap 3 to 5 times (a random number; the toast just says to keep tapping): every tap buzzes and shakes the emoji, and the last one starts the profile over. `-1` goes back into the last slide and hold-to-reset also starts over. Import, export and delete profiles on the profile screen (hold the red x to delete).
+- On the completed screen, tap 3 to 5 times (a random number; the toast just says to keep tapping): every tap buzzes and shakes the emoji, and the last one starts the profile over. `-1` goes back into the last slide and "Hold to reset the whole profile" in the adjust dialog also starts over. Import, export and delete profiles on the profile screen (hold the red x to delete).
 
 ## Build
 

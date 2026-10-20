@@ -21,6 +21,7 @@ import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.text.Editable;
+import android.text.InputFilter;
 import android.text.InputType;
 import android.text.StaticLayout;
 import android.text.TextPaint;
@@ -110,7 +111,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     int cur;         // dhikr: current slide (== slide count: completed)
     boolean edit;    // layout editor on
     RectF[] er = new RectF[9]; // rectangles (px) of the editable elements, see def()
-    View[] ev;       // their views: menu, reset, -1, view, dhikr text, counter, footer, DND warning, title
+    View[] ev;       // their views: menu, adjust, -1, view, dhikr text, counter, footer, DND warning, title
     Ed ed;           // the editor overlay
     int vi;          // chosen view of the slides (clamped per slide)
     long rt;         // time of the last tap on the completed screen
@@ -204,10 +205,15 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     // none
                 }
             }
-            r.c[i] = v > 0 && v <= 100000 ? v : r.c0[i];
-            r.cu[i + 1] = r.cu[i] + r.c[i];
+            r.c[i] = v > 0 ? v : r.c0[i];
+            r.cu[i + 1] = sat(r.cu[i], r.c[i]);
         }
         r.tot = r.cu[r.c.length];
+    }
+
+    // a sum that stops at the largest int
+    static int sat(int a, int b) {
+        return (int) Math.min(Integer.MAX_VALUE, (long) a + b);
     }
 
     // description, author and version of a profile
@@ -236,8 +242,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                         tis.add(title(b.toString(), cs.size() - 1));
                         exs.add(Pattern.compile("(?m)^\\s*#\\s*\\S").matcher(b).find());
                     }
-                    cnt = Integer.parseInt(l.replaceAll("[^0-9]", ""));
-                    if (cnt > 100000) return null;
+                    String dg = l.replaceAll("[^0-9]", "").replaceFirst("^0+(?=.)", "");
+                    cnt = dg.length() > 9 ? 999999999 : Integer.parseInt(dg); // no limit but the size of an int
                     b.setLength(0);
                     open = true;
                 } else if (l.matches("-{2,}")) {
@@ -262,7 +268,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             r.ex[i] = exs.get(i);
             r.c[i] = cs.get(i);
             r.v[i] = vs.get(i);
-            r.cu[i + 1] = r.cu[i] + r.c[i];
+            r.cu[i + 1] = sat(r.cu[i], r.c[i]);
         }
         r.c0 = r.c.clone();
         r.tot = r.cu[k];
@@ -431,8 +437,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
         se = b("menu");
         se.setOnClickListener(this);
-        rs = b("reset");
-        rs.setOnClickListener(this);      // a tap explains, hold resets
+        rs = b("adjust");
+        rs.setOnClickListener(this);      // opens the adjust dialog (a hold does too)
         rs.setOnLongClickListener(this);
         dn = b("-1");
         dn.setOnClickListener(this);
@@ -675,14 +681,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         return q.measureText(LB[i]) + dp(40);
     }
 
-    // default rectangle of element i: 0 menu, 1 reset, 2 -1, 3 view, 4 dhikr text, 5 counter,
+    // default rectangle of element i: 0 menu, 1 adjust, 2 -1, 3 view, 4 dhikr text, 5 counter,
     // 6 footer, 7 Do Not Disturb warning, 8 slide title. Symmetric about the middle of the screen, top to
     // bottom: menu and reset in the corners, warning, dhikr text, counter, (the view dots), slide title,
     // and a bottom row of -1, the footer and the focus button.
     // default layout as fractions of the screen: left, top, right, bottom of every element
     static final float[][] DF = {
         {0, 0, .25f, .0526f},             // menu
-        {.75f, 0, 1, .0526f},             // reset
+        {.75f, 0, 1, .0526f},             // adjust
         {0, .95f, .25f, .985f},           // -1
         {.75f, .95f, 1, .985f},           // view (the focus button)
         {0, .1064f, 1, .7440f},           // dhikr text
@@ -1086,7 +1092,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     try {
                         String[] a = sv.split(",");
                         for (int i = 0; i < k && i < a.length; i++)
-                            cn[i] = Math.max(0, Math.min(1000000, Integer.parseInt(a[i])));
+                            cn[i] = Math.max(0, Integer.parseInt(a[i]));
                     } catch (Exception e) {
                         Arrays.fill(cn, 0);
                     }
@@ -1770,14 +1776,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                         boolean any = false;
                         for (int i = 0; i < k; i++) {
                             int v = num(ed[i]);
-                            boolean own = v < 1 || v > 100000 || v == pr.c0[i];
+                            boolean own = v < 1 || v == pr.c0[i];
                             any |= !own;
                             b.append(i > 0 ? "," : "").append(own ? "" : "" + v);
                         }
                         res = any ? b.toString() : "";
                     } else {
                         int v = num(all);
-                        res = v < 1 || v > 100000 ? "" : "*" + v;
+                        res = v < 1 ? "" : "*" + v;
                     }
                     setRepeats(res);
                 })
@@ -1790,6 +1796,159 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         else p.edit().putString("rp:" + pf, csv).apply();
         ov(pr, csv);
         draw();
+    }
+
+    // the counts, for Undo: the slide and the count of every slide, or the plain count
+    int[] counts() {
+        if (pr == null) return new int[]{n};
+        int[] a = new int[cn.length + 1];
+        a[0] = cur;
+        System.arraycopy(cn, 0, a, 1, cn.length);
+        return a;
+    }
+
+    void putCounts(int[] a) {
+        if (pr == null) {
+            n = a[0];
+        } else {
+            cur = a[0];
+            System.arraycopy(a, 1, cn, 0, cn.length);
+        }
+        cf.t0 = 0;
+    }
+
+    // Sets the target of one slide (kept in the repeats, rp:<profile>). Empty, 0 or the profile's own
+    // value goes back to the profile's own.
+    void setTarget(int s, int v) {
+        int k = pr.c.length;
+        String sv = p.getString("rp:" + pf, "");
+        String[] a = new String[k];
+        Arrays.fill(a, "");
+        if (sv.startsWith("*")) {
+            Arrays.fill(a, sv.substring(1).trim());
+        } else {
+            String[] q = sv.split(",", -1);
+            for (int i = 0; i < k && i < q.length; i++) a[i] = q[i].trim();
+        }
+        a[s] = v < 1 || v == pr.c0[s] ? "" : "" + v;
+        StringBuilder b = new StringBuilder();
+        boolean any = false;
+        for (int i = 0; i < k; i++) {
+            any |= !a[i].isEmpty();
+            b.append(i > 0 ? "," : "").append(a[i]);
+        }
+        setRepeats(any ? b.toString() : "");
+    }
+
+    TextView dtx(String s, int col) {
+        TextView v = new TextView(this);
+        v.setText(s);
+        v.setTextColor(col);
+        v.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        return v;
+    }
+
+    LinearLayout drow(TextView l, EditText e) {
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.addView(l, new LinearLayout.LayoutParams(0, -2, 1f));
+        r.addView(e, new LinearLayout.LayoutParams(dp(110), -2));
+        return r;
+    }
+
+    // The adjust dialog (the "adjust" button): the count and the target (of this slide, or the goal of
+    // the plain counter) to set, a reset and Undo. A reset and Undo happen at once and the dialog stays
+    // open, so a slip can be undone; Save applies the two fields. Resetting the whole profile needs a hold.
+    void adjust() {
+        if (edit || rb) return;
+        final boolean prof = pr != null;
+        final int k = prof ? pr.c.length : 0;
+        final ArrayList<int[]> ust = new ArrayList<>();
+        final AlertDialog[] dg = new AlertDialog[1];
+        final EditText ec = new EditText(this), et = new EditText(this);
+        for (EditText e : new EditText[]{ec, et}) {
+            e.setInputType(InputType.TYPE_CLASS_NUMBER);
+            e.setFilters(new InputFilter[]{new InputFilter.LengthFilter(9)});
+            e.setTextColor(th.fg);
+            e.setHintTextColor(th.dim);
+            e.setGravity(Gravity.CENTER);
+        }
+        et.setHint(prof ? "as in the profile" : "off");
+        final TextView ud = dtx("Undo", th.ac);
+        final TextView rc = dtx(prof ? "Reset this slide" : "Reset to 0", th.fg);
+        final TextView rp = dtx("Hold to reset the whole profile", th.warn);
+        for (TextView v : new TextView[]{ud, rc, rp}) v.setPadding(0, dp(14), 0, dp(14));
+        final LinearLayout fl = new LinearLayout(this);
+        fl.setOrientation(LinearLayout.VERTICAL);
+        fl.addView(drow(dtx("Count", th.fg), ec));
+        fl.addView(drow(dtx(prof ? "Target of this slide" : "Goal (empty = off)", th.fg), et));
+        fl.addView(rc);
+        final LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(20), dp(8), dp(20), dp(4));
+        root.addView(fl);
+        root.addView(ud);
+        if (prof) root.addView(rp);
+
+        // shows the current state: the title, the two fields, and whether there is something to undo
+        final Runnable rf = () -> {
+            boolean fin = prof && cur >= k;
+            int s = prof ? Math.min(cur, k - 1) : 0;
+            dg[0].setTitle(!prof ? "Counter" : fin ? "Profile completed" : (s + 1) + ". " + pr.ti[s]);
+            fl.setVisibility(fin ? View.GONE : View.VISIBLE);
+            if (!fin) {
+                ec.setText("" + (prof ? cn[s] : n));
+                et.setText(prof ? "" + pr.c[s] : mx > 0 ? "" + mx : "");
+            }
+            ud.setEnabled(!ust.isEmpty());
+            ud.setTextColor(ust.isEmpty() ? th.dim : th.ac);
+        };
+        rc.setOnClickListener(v -> {
+            ust.add(counts());
+            if (prof) cn[Math.min(cur, k - 1)] = 0; // stays on the slide
+            else n = 0;
+            cf.t0 = 0;
+            z(vr);
+            draw();
+            rf.run();
+        });
+        rp.setOnClickListener(v -> Toast.makeText(this, "Hold to reset the whole profile", Toast.LENGTH_SHORT).show());
+        rp.setOnLongClickListener(v -> {
+            ust.add(counts());
+            cur = 0;
+            Arrays.fill(cn, 0);
+            cf.t0 = 0;
+            z(vr);
+            draw();
+            rf.run();
+            return true;
+        });
+        ud.setOnClickListener(v -> {
+            if (ust.isEmpty()) return;
+            putCounts(ust.remove(ust.size() - 1));
+            z(vt);
+            draw();
+            rf.run();
+        });
+        dg[0] = th.dlg(this).setView(root)
+                .setPositiveButton("Save", (d, w) -> {
+                    if (!(prof && cur >= k)) {
+                        int s = prof ? cur : 0;
+                        if (ec.getText().length() > 0) { // an empty count is left as it is
+                            if (prof) cn[s] = num(ec);
+                            else n = num(ec);
+                        }
+                        if (prof) {
+                            setTarget(s, num(et));
+                        } else {
+                            mx = num(et);
+                            p.edit().putString("mx", "" + mx).apply();
+                        }
+                    }
+                    draw();
+                })
+                .setNegativeButton("Close", null).show();
+        rf.run();
     }
 
     // top-left menu
@@ -1856,8 +2015,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             return;
         }
         if (x == rs) {
-            Toast.makeText(this, pr != null ? "Hold the reset button to start the profile over"
-                    : "Hold the reset button to set the count back to zero", Toast.LENGTH_SHORT).show();
+            adjust();
             return;
         }
         if (x == vw) {
@@ -1971,15 +2129,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     @Override public boolean onLongClick(View x) {
-        if (x == rs) {
-            if (pr != null) {
-                cur = 0;
-                Arrays.fill(cn, 0);
-            } else {
-                n = 0;
-            }
-            cf.t0 = 0;
-            z(vr);
+        if (x == rs) { // nothing is reset by a hold any more: it opens the same dialog
+            z(vt);
+            adjust();
+            return true;
         } else if (cv) { // a hold leaves focus; the way in is the slider of the focus sheet
             cv = false;
             z(vh);
