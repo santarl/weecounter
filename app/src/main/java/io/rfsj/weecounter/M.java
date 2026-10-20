@@ -20,6 +20,7 @@ import android.os.SystemClock;
 import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputFilter;
 import android.text.InputType;
@@ -128,6 +129,16 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     HorizontalScrollView hs; // its row of palettes
     FrameLayout fo;  // the focus sheet (the focus button), null until first opened
     ScaleGestureDetector sd; // pinch to resize the dhikr text of a slide / view
+    // the floating counter (Fb) counts the plain counter in the settings file: take over what it counted
+    final SharedPreferences.OnSharedPreferenceChangeListener nl = (sp, key) -> {
+        if ("n".equals(key) && pr == null) {
+            int c2 = sp.getInt("n", 0);
+            if (c2 != n) {
+                n = c2;
+                draw();
+            }
+        }
+    };
     float zs;        // text scale while pinching
     float zmx = 1;   // the largest scale at which the text still fits its rectangle (the limit of a pinch)
     boolean ful;     // the text fills its rectangle (cannot grow): the expand button shows
@@ -546,6 +557,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         vc = fx(9);
         load(); // also takes over what another window counted meanwhile
         if (pr == null) n = p.getInt("n", 0);
+        p.registerOnSharedPreferenceChangeListener(nl);
         skin(); // again: load() may have dropped a profile that is gone
         weekly();
         em = EM[new Random().nextInt(EM.length)];
@@ -571,10 +583,17 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     @Override protected void onPause() {
         super.onPause();
+        p.unregisterOnSharedPreferenceChangeListener(nl);
         f.removeCallbacks(this);
         land();
         undo();
         keep();
+    }
+
+    // The plain counter is written down at once, so this window and the floating counter always see
+    // the same number (the rest is written when the window is left, see keep()).
+    void keepN() {
+        if (pr == null) p.edit().putInt("n", n).apply();
     }
 
     // writes down the counts (the plain counter, or the profile's)
@@ -592,6 +611,24 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     void setMode(boolean simple) {
         sm = simple;
         if (pin == null) p.edit().putBoolean("pm", !simple).apply(); // a plain window remembers it
+    }
+
+    // The floating counter (Fb): a bubble over other apps that counts the plain counter. Needs the
+    // "Display over other apps" permission; the menu item turns it on and off.
+    void bubble() {
+        if (Fb.on) {
+            stopService(new Intent(this, Fb.class));
+            return;
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Allow \"Display over other apps\" for weecounter, then choose Floating counter again",
+                    Toast.LENGTH_LONG).show();
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
+            return;
+        }
+        if (pr != null) // a profile has slides: the bubble only counts the plain counter
+            Toast.makeText(this, "The floating counter counts the plain counter", Toast.LENGTH_SHORT).show();
+        startForegroundService(new Intent(this, Fb.class));
     }
 
     // menu: simple mode (a plain counter) or profile mode (the selected dhikr profile)
@@ -1810,6 +1847,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     void putCounts(int[] a) {
         if (pr == null) {
             n = a[0];
+            keepN();
         } else {
             cur = a[0];
             System.arraycopy(a, 1, cn, 0, cn.length);
@@ -1906,7 +1944,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         rc.setOnClickListener(v -> {
             ust.add(counts());
             if (prof) cn[Math.min(cur, k - 1)] = 0; // stays on the slide
-            else n = 0;
+            else {
+                n = 0;
+                keepN();
+            }
             cf.t0 = 0;
             z(vr);
             draw();
@@ -1935,8 +1976,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     if (!(prof && cur >= k)) {
                         int s = prof ? cur : 0;
                         if (ec.getText().length() > 0) { // an empty count is left as it is
-                            if (prof) cn[s] = num(ec);
-                            else n = num(ec);
+                            if (prof) {
+                                cn[s] = num(ec);
+                            } else {
+                                n = num(ec);
+                                keepN();
+                            }
                         }
                         if (prof) {
                             setTarget(s, num(et));
@@ -1963,12 +2008,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         if (pr != null) m.getMenu().add(0, 4, 3, "Goto");
         m.getMenu().add(0, 5, 4, "Theme");
         m.getMenu().add(0, 7, 5, "Reminders");
+        m.getMenu().add(0, 8, 6, Fb.on ? "Floating counter: on" : "Floating counter");
         m.setOnMenuItemClickListener(i -> {
             int id = i.getItemId();
             if (id == 3) enterEdit();
             else if (id == 4) goTo();
             else if (id == 5) strip();
             else if (id == 6) toggleMode();
+            else if (id == 8) bubble();
             else if (id == 7) {
                 p.edit().putString("pf", pf).apply(); // the screen has the theme of this window
                 startActivity(new Intent(this, N.class));
@@ -2053,6 +2100,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             }
         } else {
             n++;
+            keepN();
             z(mx > 0 && n == mx ? vl : n % st == 0 ? vc : vt);
             if (n % st == 0 || mx > 0 && n == mx) N.done(this, ""); // a lap (or the goal) of the plain counter
         }
@@ -2107,6 +2155,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             cf.t0 = 0;
         } else if (n > 0) {
             n--;
+            keepN();
         }
         z(vt);
         draw();

@@ -8,7 +8,7 @@ A tiny, fast tap counter built for AMOLED screens. No ads, no tracking. The only
 <li>Dots and tally fill the screen, then drain one mark per tap until the next lap, which changes the colour, buzzes and starts over</li>
 <li>Slow pixel shifting to protect AMOLED screens from burn-in</li>
 <li>-1 and adjust buttons on the panel: set the count and the target, reset, undo</li>
-<li>Optional counting with the volume buttons</li>
+<li>Optional counting with the volume buttons, or with a floating bubble over other apps</li>
 <li>Dhikr mode: import text profiles (any language, one file each) and count their slides one after another; swipe to skip a slide or switch between Arabic, transliteration and meaning; use Goto in the menu to search and jump to a slide; share .dhikr files from other apps to import them; completed screen with confetti</li>
 </ul>
 
