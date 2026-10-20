@@ -29,10 +29,13 @@ import android.view.ViewConfiguration;
 import android.view.WindowManager;
 import android.widget.Toast;
 
-// The floating counter: a round bubble over other apps that shows the plain counter and counts it
-// with a tap. Hold it to pick it up, drag it where you want it (it snaps to the nearest side), drop
-// it on the X that appears at the bottom to close it. It always counts the plain counter, the
-// number "n" of the settings file, which the app takes over at once (see M.nl and M.keepN).
+import java.util.Arrays;
+
+// The floating counter: a round bubble over other apps that counts with a tap. Hold it to pick it
+// up, drag it where you want it (it snaps to the nearest side), drop it on the X that appears at the
+// bottom to close it. It counts what the app is on: the current slide of the profile in use (the
+// slide moves on at its target, as in the app), or the plain counter. Both live in the settings
+// file, which the app writes at every redraw and takes over at once (see M.live and M.takeOver).
 public class Fb extends Service {
     static boolean on;                // the bubble is up
     static final String STOP = "io.rfsj.weecounter.STOP_BUBBLE";
@@ -45,10 +48,9 @@ public class Fb extends Service {
     float u;                          // one dp in px
     int size, W, H;                   // the bubble's size, the screen's size (px)
     final SharedPreferences.OnSharedPreferenceChangeListener nl = (sp, k) -> {
-        if ("n".equals(k) && bb != null) { // the app counted
-            bb.n = sp.getInt("n", 0);
-            bb.invalidate();
-        }
+        if (k == null || k.equals("n") || k.equals("pf") || k.equals("pm") || k.startsWith("cn:") || k.startsWith("cu:")
+                || k.startsWith("rp:") || k.startsWith("th")) // the app counted or changed profile, theme or repeats
+            refresh();
     };
 
     @Override public IBinder onBind(Intent i) {
@@ -79,7 +81,7 @@ public class Fb extends Service {
         else startForeground(1, nf);
 
         bb = new Bb();
-        bb.n = p.getInt("n", 0);
+        refresh();
         bp = new WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
@@ -171,16 +173,91 @@ public class Fb extends Service {
         }
     }
 
-    // a tap: the plain counter counts, with the same buzz and reminder clearing as in the app
+    // the profile the app is in (profile mode), or null for the plain counter
+    String prof() {
+        String pf = p.getString("pf", "");
+        return pf.isEmpty() || !p.getBoolean("pm", false) ? null : pf;
+    }
+
+    // the profile with its repeats, or null if it is gone
+    M.Pr load(String pf) {
+        String tx = getSharedPreferences("d", 0).getString(pf, null);
+        M.Pr r = tx == null ? null : M.parse(tx);
+        if (r != null) M.ov(r, p.getString("rp:" + pf, ""));
+        return r;
+    }
+
+    // the count of every slide of the profile
+    int[] counts(String pf, int k) {
+        int[] a = new int[k];
+        try {
+            String sv = p.getString("cn:" + pf, null);
+            if (sv != null) {
+                String[] q = sv.split(",");
+                for (int i = 0; i < k && i < q.length; i++) a[i] = Math.max(0, Integer.parseInt(q[i]));
+            }
+        } catch (Exception e) {
+            Arrays.fill(a, 0);
+        }
+        return a;
+    }
+
+    // What the bubble shows: the count of the current slide of the profile in use (a check mark when
+    // it is completed), else the plain counter. The colours are those of that profile's theme.
+    void refresh() {
+        if (bb == null) return;
+        String pf = prof();
+        M.Pr pr = pf == null ? null : load(pf);
+        th = Th.get(this, p, pr != null ? pf : "");
+        if (pr == null) {
+            bb.s = "" + p.getInt("n", 0);
+        } else {
+            int k = pr.c.length, cu = Math.max(0, Math.min(k, p.getInt("cu:" + pf, 0)));
+            bb.s = cu >= k ? "\u2713" : "" + counts(pf, k)[cu];
+        }
+        bb.invalidate();
+    }
+
+    // a tap counts what the bubble shows
     void tap() {
+        String pf = prof();
+        M.Pr pr = pf == null ? null : load(pf);
+        if (pr == null) plain();
+        else slide(pf, pr);
+        refresh();
+    }
+
+    // the plain counter counts, with the same buzz and reminder clearing as in the app
+    void plain() {
         int n = p.getInt("n", 0) + 1;
         p.edit().putInt("n", n).apply();
-        bb.n = n;
-        bb.invalidate();
         int mx = ni("mx", 0), st = Math.max(1, ni("st", 100));
         boolean goal = mx > 0 && n == mx, lap = n % st == 0;
         buzz(goal ? 8 : lap ? 9 : 5); // the settings of the app: vibration for the goal, a lap, a tap
         if (goal || lap) N.done(this, "");
+    }
+
+    // The current slide of the profile counts and, at its target, moves on to the next slide that is
+    // not full yet, with the lap buzz (the goal buzz when the profile is completed), as in M.inc().
+    // A completed profile does nothing: the app's completed screen starts over, a bubble does not.
+    void slide(String pf, M.Pr pr) {
+        int k = pr.c.length, cur = Math.max(0, Math.min(k, p.getInt("cu:" + pf, 0)));
+        if (cur >= k) return;
+        int[] cn = counts(pf, k);
+        int c0 = pr.c[cur];
+        cn[cur]++; // counting past the target is allowed (40/33); the slide moves on once, at the target
+        boolean fin = cn[cur] == c0;
+        int nx = cur;
+        if (fin) {
+            nx = cur + 1;
+            while (nx < k && cn[nx] >= pr.c[nx]) nx++;
+        }
+        boolean done = fin && nx >= k;
+        buzz(done ? 8 : c0 > 1 && cn[cur] % c0 == 0 ? 9 : 5);
+        StringBuilder b = new StringBuilder();
+        for (int c : cn) b.append(c).append(',');
+        p.edit().putString("cn:" + pf, b.toString()).putInt("cu:" + pf, nx).apply();
+        if (done) N.done(this, pf); // a kept reminder of this profile goes away
     }
 
     // i is the number of the vibration setting in M.D, played the way the app plays it
@@ -200,9 +277,9 @@ public class Fb extends Service {
         }
     }
 
-    // the bubble: the number in a circle of the accent colour
+    // the bubble: what it counts, in a circle of the accent colour
     class Bb extends View {
-        int n;
+        String s = "0";              // what it shows
         final Paint q = new Paint(Paint.ANTI_ALIAS_FLAG);
         float sx, sy;                 // where the finger went down (screen)
         int ox, oy;                   // where the bubble was then
@@ -229,7 +306,6 @@ public class Fb extends Service {
             q.setStrokeWidth(2 * u);
             q.setColor((th.fg & 0xFFFFFF) | 0x99000000);
             c.drawCircle(r, r, r - 2 * u, q);
-            String s = "" + n;
             q.setStyle(Paint.Style.FILL);
             q.setColor(th.bg);
             q.setTextSize(24 * u);

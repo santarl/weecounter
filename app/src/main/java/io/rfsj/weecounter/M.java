@@ -129,15 +129,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     HorizontalScrollView hs; // its row of palettes
     FrameLayout fo;  // the focus sheet (the focus button), null until first opened
     ScaleGestureDetector sd; // pinch to resize the dhikr text of a slide / view
-    // the floating counter (Fb) counts the plain counter in the settings file: take over what it counted
+    // The floating counter (Fb) counts the plain counter or the slides of the profile in the settings
+    // file: take over what it counted. live: the counts are written down at every redraw.
+    boolean live;
     final SharedPreferences.OnSharedPreferenceChangeListener nl = (sp, key) -> {
-        if ("n".equals(key) && pr == null) {
-            int c2 = sp.getInt("n", 0);
-            if (c2 != n) {
-                n = c2;
-                draw();
-            }
-        }
+        if (key != null && (pr == null ? key.equals("n") : key.equals("cn:" + pf) || key.equals("cu:" + pf)))
+            takeOver();
     };
     float zs;        // text scale while pinching
     float zmx = 1;   // the largest scale at which the text still fits its rectangle (the limit of a pinch)
@@ -570,6 +567,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         undo(); // clean up after a crash, then (re)apply
         dnd();
         sync();
+        live = true; // from here on the counts are written down at every redraw
         draw();
         f.removeCallbacks(this);
         run();
@@ -583,6 +581,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     @Override protected void onPause() {
         super.onPause();
+        live = false;
         p.unregisterOnSharedPreferenceChangeListener(nl);
         f.removeCallbacks(this);
         land();
@@ -590,8 +589,37 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         keep();
     }
 
+    // takes over what the floating counter counted: the plain counter, or the slide counts of the profile
+    void takeOver() {
+        if (pr == null) {
+            int c2 = p.getInt("n", 0);
+            if (c2 != n) {
+                n = c2;
+                draw();
+            }
+            return;
+        }
+        int k = pr.c.length;
+        int[] a = new int[k];
+        try {
+            String sv = p.getString("cn:" + pf, null);
+            if (sv != null) {
+                String[] q = sv.split(",");
+                for (int i = 0; i < k && i < q.length; i++) a[i] = Math.max(0, Integer.parseInt(q[i]));
+            }
+        } catch (Exception e) {
+            return;
+        }
+        int cu = Math.max(0, Math.min(k, p.getInt("cu:" + pf, 0)));
+        if (cu != cur || !Arrays.equals(a, cn)) {
+            cn = a;
+            cur = cu;
+            draw();
+        }
+    }
+
     // The plain counter is written down at once, so this window and the floating counter always see
-    // the same number (the rest is written when the window is left, see keep()).
+    // the same number (draw() writes everything down while the window is live, see keep()).
     void keepN() {
         if (pr == null) p.edit().putInt("n", n).apply();
     }
@@ -613,7 +641,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         if (pin == null) p.edit().putBoolean("pm", !simple).apply(); // a plain window remembers it
     }
 
-    // The floating counter (Fb): a bubble over other apps that counts the plain counter. Needs the
+    // The floating counter (Fb): a bubble over other apps that counts the plain counter, or the current
+    // slide of the profile in use. Needs the
     // "Display over other apps" permission; the menu item turns it on and off.
     void bubble() {
         if (Fb.on) {
@@ -626,8 +655,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
             return;
         }
-        if (pr != null) // a profile has slides: the bubble only counts the plain counter
-            Toast.makeText(this, "The floating counter counts the plain counter", Toast.LENGTH_SHORT).show();
         startForegroundService(new Intent(this, Fb.class));
     }
 
@@ -971,6 +998,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     void draw() {
+        if (live) keep(); // the floating counter counts the same numbers
         int cnt, lap, ci;         // count shown / lap length / colour index
         String big, prog = "", title = ""; // the big text, the slide progress line and the slide title
         int key = -1;             // which dhikr text is shown: slide * 64 + view
