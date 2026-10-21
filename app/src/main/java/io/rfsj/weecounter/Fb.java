@@ -55,7 +55,7 @@ public class Fb extends Service {
     SharedPreferences p;
     Th th;
     Bb bb;                            // the bubble
-    Xt xt;                            // the X, only while the bubble is picked up
+    Xt xt, it;                        // the X and (in a profile) the i, only while the bubble is picked up
     Sp speech;                        // the speech bubble, only while it is shown
     Runnable fadeR;                   // what fades it out
     WindowManager.LayoutParams bp, xp, yp;
@@ -65,6 +65,7 @@ public class Fb extends Service {
     String last = "";                 // profile:slide the speech bubble last saw ("" = none yet)
     static final long[] BUZZ_NEAR = {0, 25};          // the bubble got over the X: a short tick
     static final long[] BUZZ_CLOSE = {0, 40, 60, 90};  // dropped on the X: two buzzes, the second longer
+    static final long[] BUZZ_INFO = {0, 20, 40, 20};   // dropped on the i: two short ones
     final SharedPreferences.OnSharedPreferenceChangeListener nl = (sp, k) -> {
         if ("bs".equals(k)) resize();
         if (k == null || k.equals("n") || k.equals("pf") || k.equals("pm") || k.startsWith("cn:") || k.startsWith("cu:")
@@ -175,32 +176,47 @@ public class Fb extends Service {
         bp.y = Math.max(0, Math.min(H - size, bp.y));
     }
 
-    // the X that shows where to drop the bubble to close it
+    // The targets at the bottom while the bubble is picked up: the X (drop it there to close it) and,
+    // in a profile, the i next to it (drop it there to see the current slide).
     void showX() {
         if (xt != null) return;
-        xt = new Xt();
+        boolean info = prof() != null;
+        xt = target(0, info ? -44 : 0);
+        if (info) it = target(1, 44);
+    }
+
+    // kind 0 is the X, 1 the i; dx: dp from the middle of the screen
+    Xt target(int kind, int dx) {
+        Xt t = new Xt(kind);
         int d = (int) (64 * u);
-        xp = new WindowManager.LayoutParams(d, d, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(d, d, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT);
-        xp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        xp.y = (int) (48 * u);
-        wm.addView(xt, xp);
+        lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        lp.x = (int) (dx * u);
+        lp.y = (int) (48 * u);
+        wm.addView(t, lp);
+        return t;
     }
 
     void hideX() {
-        if (xt == null) return;
-        try {
-            wm.removeView(xt);
-        } catch (RuntimeException ignored) {
+        for (Xt t : new Xt[]{xt, it}) {
+            if (t == null) continue;
+            try {
+                wm.removeView(t);
+            } catch (RuntimeException ignored) {
+            }
         }
         xt = null;
+        it = null;
     }
 
-    // is the middle of the bubble over the X?
-    boolean over() {
-        float bx = bp.x + size / 2f, by = bp.y + size / 2f, xx = W / 2f, xy = H - 80 * u;
-        return Math.hypot(bx - xx, by - xy) < 56 * u;
+    // which target the middle of the bubble is over: 0 none, 1 the X, 2 the i
+    int over() {
+        float bx = bp.x + size / 2f, by = bp.y + size / 2f, y = H - 80 * u, dx = it != null ? 44 * u : 0;
+        if (Math.hypot(bx - (W / 2f - dx), by - y) < 46 * u) return 1;
+        if (it != null && Math.hypot(bx - (W / 2f + dx), by - y) < 46 * u) return 2;
+        return 0;
     }
 
     int ni(String key, int d) {
@@ -258,9 +274,18 @@ public class Fb extends Service {
             last = pf + ":" + cu;
             // another slide while the app is not on screen: the speech bubble says which
             if (old.startsWith(pf + ":") && !old.equals(last) && !M.fg && !dragging)
-                say(cu >= k ? "\u2713" : slideText(pr, cu));
+                say(cu >= k ? "\u2713" : slideText(pr, cu), false);
         }
         bb.invalidate();
+    }
+
+    // the info: the current slide in a speech bubble that stays until some input
+    void info() {
+        String pf = prof();
+        M.Pr pr = pf == null ? null : load(pf);
+        if (pr == null) return;
+        int k = pr.c.length, cu = Math.max(0, Math.min(k, p.getInt("cu:" + pf, 0)));
+        say(cu >= k ? "\u2713" : slideText(pr, cu), true);
     }
 
     // the text of the slide in the view the app is on, or its title
@@ -351,6 +376,7 @@ public class Fb extends Service {
         float sx, sy;                 // where the finger went down (screen)
         int ox, oy;                   // where the bubble was then
         boolean drag;                 // the finger moved far enough: the bubble follows it
+        int hotT;                     // the target it is over: 0 none, 1 the X, 2 the i
         VelocityTracker vt;
 
         Bb() {
@@ -391,6 +417,7 @@ public class Fb extends Service {
                     ox = bp.x;
                     oy = bp.y;
                     drag = false;
+                    if (speech != null && speech.sticky) hideSay(); // any input puts the info away
                     return true;
                 case MotionEvent.ACTION_MOVE: {
                     float dx = e.getRawX() - sx, dy = e.getRawY() - sy;
@@ -398,6 +425,7 @@ public class Fb extends Service {
                         if (Math.hypot(dx, dy) < 2 * ViewConfiguration.get(getContext()).getScaledTouchSlop()) return true;
                         drag = true;
                         dragging = true;
+                        hotT = 0;
                         hideSay();
                         showX();
                         animate().scaleX(1.15f).scaleY(1.15f).setDuration(100);
@@ -406,11 +434,16 @@ public class Fb extends Service {
                     bp.y = oy + (int) dy;
                     clamp();
                     wm.updateViewLayout(this, bp);
-                    boolean h = over();
+                    int t = over();
                     if (xt != null) {
-                        if (h && !xt.hot) play(BUZZ_NEAR); // got over the X
-                        xt.hot = h;
+                        if (t != 0 && t != hotT) play(BUZZ_NEAR); // got over a target
+                        hotT = t;
+                        xt.hot = t == 1;
                         xt.invalidate();
+                        if (it != null) {
+                            it.hot = t == 2;
+                            it.invalidate();
+                        }
                     }
                     return true;
                 }
@@ -434,9 +467,16 @@ public class Fb extends Service {
         // to the edge it was thrown at; otherwise it stays right here
         void release(float vx, float vy) {
             animate().scaleX(1f).scaleY(1f).setDuration(100);
-            if (over()) {
+            int t = over();
+            if (t == 1) {
                 play(BUZZ_CLOSE);
                 stopSelf();
+                return;
+            }
+            if (t == 2) { // the i: the bubble goes back where it was picked up, then the info shows
+                play(BUZZ_INFO);
+                hideX();
+                glide(ox, oy, () -> info());
                 return;
             }
             hideX();
@@ -444,13 +484,13 @@ public class Fb extends Service {
                 int tx = bp.x, ty = bp.y;
                 if (Math.abs(vx) >= Math.abs(vy)) tx = vx < 0 ? 0 : W - size;
                 else ty = vy < 0 ? 0 : H - size;
-                glide(tx, ty);
+                glide(tx, ty, null);
             } else {
                 save();
             }
         }
 
-        void glide(final int tx, final int ty) {
+        void glide(final int tx, final int ty, final Runnable after) {
             final int fx = bp.x, fy = bp.y;
             ValueAnimator a = ValueAnimator.ofFloat(0f, 1f);
             a.setDuration(240);
@@ -467,15 +507,18 @@ public class Fb extends Service {
             a.addListener(new AnimatorListenerAdapter() {
                 @Override public void onAnimationEnd(Animator an) {
                     save();
+                    if (after != null) after.run();
                 }
             });
             a.start();
         }
     }
 
-    // A comic speech bubble beside the head with the new slide: it fades in, stays a moment (longer
-    // for more text) and fades out. It does not take touches. A new one replaces the one showing.
-    void say(String text) {
+    // A comic speech bubble beside the head with the text of a slide, all of it (the text gets smaller
+    // if it would not fit the screen). It fades in slowly; then it either stays a while and fades out
+    // slowly, or (sticky: the info) stays until some input: a touch on it, on the head, or anywhere
+    // else. It takes no touches when it is not sticky. A new one replaces the one showing.
+    void say(String text, boolean sticky) {
         hideSay();
         if (text == null || text.isEmpty()) return;
         float tl = 14 * u, m = 6 * u, pad = 12 * u;                  // tail, room for the outline, padding
@@ -483,22 +526,29 @@ public class Fb extends Service {
         boolean right = cx > W / 2f;                                 // head on the right: the bubble goes to its left
         float room = (right ? bp.x : W - bp.x - size) - 4 * u - tl - 2 * m;
         float bw = Math.max(110 * u, Math.min(280 * u, room));       // the body's width
-        TextPaint tp = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-        tp.setColor(0xFF000000);
-        tp.setTextSize(15 * u);
-        tp.setTypeface(Typeface.DEFAULT_BOLD);
-        StaticLayout sl = StaticLayout.Builder.obtain(text, 0, text.length(), tp, (int) (bw - 2 * pad))
-                .setAlignment(Layout.Alignment.ALIGN_CENTER).setMaxLines(4)
-                .setEllipsize(TextUtils.TruncateAt.END).build();
+        float most = H - 24 * u - 2 * m - 2 * pad;                   // the most height the text may have
+        float ts = 15 * u;
+        StaticLayout sl;
+        while (true) {
+            TextPaint tp = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            tp.setColor(0xFF000000);
+            tp.setTextSize(ts);
+            tp.setTypeface(Typeface.DEFAULT_BOLD);
+            sl = StaticLayout.Builder.obtain(text, 0, text.length(), tp, (int) (bw - 2 * pad))
+                    .setAlignment(Layout.Alignment.ALIGN_CENTER).build();
+            if (sl.getHeight() <= most || ts <= 8 * u) break;
+            ts -= u;
+        }
         float bh = sl.getHeight() + 2 * pad;
         int ww = (int) (bw + tl + 2 * m), wh = (int) (bh + 2 * m);
         yp = new WindowManager.LayoutParams(ww, wh, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT);
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                        | (sticky ? WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+                        : WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE), PixelFormat.TRANSLUCENT);
         yp.gravity = Gravity.TOP | Gravity.START;
         yp.x = Math.max(0, Math.min(W - ww, (int) (right ? bp.x - 4 * u - ww : bp.x + size + 4 * u)));
         yp.y = Math.max(0, Math.min(H - wh, (int) (cy - wh / 2f)));
-        final Sp v = new Sp(sl, bw, bh, tl, m, pad, cy - yp.y, right);
+        final Sp v = new Sp(sl, bw, bh, tl, m, pad, cy - yp.y, right, sticky);
         v.setAlpha(0f);
         try {
             wm.addView(v, yp);
@@ -506,11 +556,13 @@ public class Fb extends Service {
             return;
         }
         speech = v;
-        v.animate().alpha(1f).setDuration(180);
-        fadeR = () -> v.animate().alpha(0f).setDuration(320).withEndAction(() -> {
-            if (speech == v) hideSay();
-        });
-        v.postDelayed(fadeR, 1800 + 25 * Math.min(text.length(), 60));
+        v.animate().alpha(1f).setDuration(350);
+        if (!sticky) {
+            fadeR = () -> v.animate().alpha(0f).setDuration(1200).withEndAction(() -> {
+                if (speech == v) hideSay();
+            });
+            v.postDelayed(fadeR, Math.min(9000, 3000 + 40 * text.length()));
+        }
     }
 
     void hideSay() {
@@ -532,11 +584,14 @@ public class Fb extends Service {
         final Path body = new Path();
         final Paint q = new Paint(Paint.ANTI_ALIAS_FLAG);
         final float left, top, pad;
+        final boolean sticky;
 
-        Sp(StaticLayout l, float bw, float bh, float tl, float m, float padding, float tailY, boolean tailRight) {
+        Sp(StaticLayout l, float bw, float bh, float tl, float m, float padding, float tailY, boolean tailRight,
+           boolean st) {
             super(Fb.this);
             sl = l;
             pad = padding;
+            sticky = st;
             left = m + (tailRight ? 0 : tl);
             top = m;
             float r = 14 * u;
@@ -551,6 +606,18 @@ public class Fb extends Service {
             tail.close();
             body.op(tail, Path.Op.UNION); // one outline round the body and the tail
             q.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        // the sticky one goes at any touch: on it, or (as ACTION_OUTSIDE) anywhere else
+        @Override public boolean onTouchEvent(MotionEvent e) {
+            int a = e.getActionMasked();
+            if (sticky && (a == MotionEvent.ACTION_DOWN || a == MotionEvent.ACTION_OUTSIDE)) {
+                animate().alpha(0f).setDuration(250).withEndAction(() -> {
+                    if (speech == this) hideSay();
+                });
+                return a == MotionEvent.ACTION_DOWN;
+            }
+            return false;
         }
 
         @Override protected void onDraw(Canvas c) {
@@ -573,27 +640,39 @@ public class Fb extends Service {
         }
     }
 
-    // the X: bigger and in the warning colour while the bubble is over it
+    // a target at the bottom, bigger and coloured while the bubble is over it: kind 0 the X (warning
+    // colour), kind 1 the i in a circle (accent colour)
     class Xt extends View {
+        final int kind;
         boolean hot;
         final Paint q = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-        Xt() {
+        Xt(int k) {
             super(Fb.this);
+            kind = k;
             q.setStrokeCap(Paint.Cap.ROUND);
         }
 
         @Override protected void onDraw(Canvas c) {
             float r = getWidth() / 2f;
             q.setStyle(Paint.Style.FILL);
-            q.setColor(hot ? th.warn : 0xCC202020);
+            q.setColor(hot ? (kind == 0 ? th.warn : th.ac) : 0xCC202020);
             c.drawCircle(r, r, hot ? r : r * .85f, q);
             q.setStyle(Paint.Style.STROKE);
             q.setStrokeWidth(3 * u);
-            q.setColor(0xFFFFFFFF);
-            float a = r * (hot ? .36f : .3f);
-            c.drawLine(r - a, r - a, r + a, r + a, q);
-            c.drawLine(r - a, r + a, r + a, r - a, q);
+            q.setColor(kind == 1 && hot ? th.bg : 0xFFFFFFFF);
+            if (kind == 0) {
+                float a = r * (hot ? .36f : .3f);
+                c.drawLine(r - a, r - a, r + a, r + a, q);
+                c.drawLine(r - a, r + a, r + a, r - a, q);
+            } else {
+                float g = r * (hot ? .55f : .5f); // the ring of the i, with the dot and the stem inside it
+                c.drawCircle(r, r, g, q);
+                q.setStyle(Paint.Style.FILL);
+                c.drawCircle(r, r - g * .42f, 2 * u, q);
+                q.setStyle(Paint.Style.STROKE);
+                c.drawLine(r, r - g * .1f, r, r + g * .5f, q);
+            }
         }
     }
 }
