@@ -63,8 +63,8 @@ public class Fb extends Service {
     int size, W, H;                   // the bubble's size, the screen's size (px)
     boolean dragging;                 // the bubble is being dragged
     String last = "";                 // profile:slide the speech bubble last saw ("" = none yet)
-    static final long[] NEAR = {0, 25};          // the bubble got over the X: a short tick
-    static final long[] GONE = {0, 40, 60, 90};  // dropped on the X: two buzzes, the second longer
+    static final long[] BUZZ_NEAR = {0, 25};          // the bubble got over the X: a short tick
+    static final long[] BUZZ_CLOSE = {0, 40, 60, 90};  // dropped on the X: two buzzes, the second longer
     final SharedPreferences.OnSharedPreferenceChangeListener nl = (sp, k) -> {
         if ("bs".equals(k)) resize();
         if (k == null || k.equals("n") || k.equals("pf") || k.equals("pm") || k.startsWith("cn:") || k.startsWith("cu:")
@@ -408,7 +408,7 @@ public class Fb extends Service {
                     wm.updateViewLayout(this, bp);
                     boolean h = over();
                     if (xt != null) {
-                        if (h && !xt.hot) play(NEAR); // got over the X
+                        if (h && !xt.hot) play(BUZZ_NEAR); // got over the X
                         xt.hot = h;
                         xt.invalidate();
                     }
@@ -435,7 +435,7 @@ public class Fb extends Service {
         void release(float vx, float vy) {
             animate().scaleX(1f).scaleY(1f).setDuration(100);
             if (over()) {
-                play(GONE);
+                play(BUZZ_CLOSE);
                 stopSelf();
                 return;
             }
