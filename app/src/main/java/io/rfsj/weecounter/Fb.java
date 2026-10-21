@@ -1,5 +1,7 @@
 package io.rfsj.weecounter;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -12,7 +14,9 @@ import android.content.pm.ServiceInfo;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.PixelFormat;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.media.AudioAttributes;
 import android.os.Build;
@@ -20,22 +24,30 @@ import android.os.IBinder;
 import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.text.Layout;
+import android.text.StaticLayout;
+import android.text.TextPaint;
+import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.WindowManager;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.Toast;
 
 import java.util.Arrays;
 
-// The floating counter: a round bubble over other apps that counts with a tap. Hold it to pick it
-// up, drag it where you want it (it snaps to the nearest side), drop it on the X that appears at the
-// bottom to close it. It counts what the app is on: the current slide of the profile in use (the
-// slide moves on at its target, as in the app), or the plain counter. Both live in the settings
-// file, which the app writes at every redraw and takes over at once (see M.live and M.takeOver).
+// The floating counter: a round bubble over other apps that counts with a tap. Drag it where you
+// want it (it stays where you drop it), fling it at an edge to make it stick there, drop it on the X
+// that appears at the bottom to close it. It counts what the app is on: the current slide of the
+// profile in use (the slide moves on at its target, as in the app), or the plain counter. Both live
+// in the settings file, which the app writes at every redraw and takes over at once (see M.live and
+// M.takeOver). When the slide changes while the app is not on screen, a comic speech bubble with
+// the new slide fades in beside the head and out again.
 public class Fb extends Service {
     static boolean on;                // the bubble is up
     static final String STOP = "io.rfsj.weecounter.STOP_BUBBLE";
@@ -44,10 +56,17 @@ public class Fb extends Service {
     Th th;
     Bb bb;                            // the bubble
     Xt xt;                            // the X, only while the bubble is picked up
-    WindowManager.LayoutParams bp, xp;
+    Sp speech;                        // the speech bubble, only while it is shown
+    Runnable fadeR;                   // what fades it out
+    WindowManager.LayoutParams bp, xp, yp;
     float u;                          // one dp in px
     int size, W, H;                   // the bubble's size, the screen's size (px)
+    boolean dragging;                 // the bubble is being dragged
+    String last = "";                 // profile:slide the speech bubble last saw ("" = none yet)
+    static final long[] NEAR = {0, 25};          // the bubble got over the X: a short tick
+    static final long[] GONE = {0, 40, 60, 90};  // dropped on the X: two buzzes, the second longer
     final SharedPreferences.OnSharedPreferenceChangeListener nl = (sp, k) -> {
+        if ("bs".equals(k)) resize();
         if (k == null || k.equals("n") || k.equals("pf") || k.equals("pm") || k.startsWith("cn:") || k.startsWith("cu:")
                 || k.startsWith("rp:") || k.startsWith("th")) // the app counted or changed profile, theme or repeats
             refresh();
@@ -63,8 +82,8 @@ public class Fb extends Service {
         p = getSharedPreferences("p", 0);
         th = Th.get(this, p, "");
         u = getResources().getDisplayMetrics().density;
-        size = (int) (56 * u);
         metrics();
+        size = sizePx();
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel("fb", "Floating counter", NotificationManager.IMPORTANCE_LOW));
         Notification nf = new Notification.Builder(this, "fb").setSmallIcon(N.small())
@@ -108,17 +127,14 @@ public class Fb extends Service {
     @Override public void onConfigurationChanged(Configuration c) {
         super.onConfigurationChanged(c);
         metrics();
-        clamp();
-        try {
-            wm.updateViewLayout(bb, bp);
-        } catch (RuntimeException ignored) {
-        }
+        resize();
     }
 
     @Override public void onDestroy() {
         on = false;
         p.unregisterOnSharedPreferenceChangeListener(nl);
         hideX();
+        hideSay();
         try {
             wm.removeView(bb);
         } catch (RuntimeException ignored) {
@@ -130,6 +146,28 @@ public class Fb extends Service {
         DisplayMetrics dm = getResources().getDisplayMetrics();
         W = dm.widthPixels;
         H = dm.heightPixels;
+    }
+
+    // The diameter in px: the setting, or 67dp (the old 56dp and a fifth more) when it is 0.
+    int sizePx() {
+        int d = ni("bs", 0);
+        return Math.max((int) (24 * u), Math.min(d > 0 ? d : (int) (67 * u), Math.min(W, H) / 2));
+    }
+
+    void resize() {
+        size = sizePx();
+        bp.width = size;
+        bp.height = size;
+        clamp();
+        try {
+            wm.updateViewLayout(bb, bp);
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    // remembers where the bubble is
+    void save() {
+        p.edit().putInt("bx", bp.x).putInt("by", bp.y).apply();
     }
 
     void clamp() {
@@ -210,12 +248,33 @@ public class Fb extends Service {
         M.Pr pr = pf == null ? null : load(pf);
         th = Th.get(this, p, pr != null ? pf : "");
         if (pr == null) {
-            bb.s = "" + p.getInt("n", 0);
+            int n = p.getInt("n", 0), mx = ni("mx", 0);
+            bb.s = mx > 0 ? n + "/" + mx : "" + n; // the goal, if there is one
+            last = "";
         } else {
             int k = pr.c.length, cu = Math.max(0, Math.min(k, p.getInt("cu:" + pf, 0)));
-            bb.s = cu >= k ? "\u2713" : "" + counts(pf, k)[cu];
+            bb.s = cu >= k ? "\u2713" : counts(pf, k)[cu] + "/" + pr.c[cu];
+            String old = last;
+            last = pf + ":" + cu;
+            // another slide while the app is not on screen: the speech bubble says which
+            if (old.startsWith(pf + ":") && !old.equals(last) && !M.fg && !dragging)
+                say(cu >= k ? "\u2713" : slideText(pr, cu));
         }
         bb.invalidate();
+    }
+
+    // the text of the slide in the view the app is on, or its title
+    String slideText(M.Pr pr, int s) {
+        M.Vw[] vs = pr.v[s];
+        M.Vw w = vs[Math.max(0, Math.min(vs.length - 1, p.getInt("vi", 0)))];
+        StringBuilder b = new StringBuilder();
+        for (String t : w.t) {
+            String x = t.trim();
+            if (x.isEmpty()) continue;
+            if (b.length() > 0) b.append('\n');
+            b.append(x);
+        }
+        return b.length() > 0 ? b.toString() : pr.ti[s];
     }
 
     // a tap counts what the bubble shows
@@ -266,6 +325,14 @@ public class Fb extends Service {
             String[] a = p.getString(M.D[i][0], M.D[i][1]).trim().split("[^0-9]+");
             long[] w = new long[a.length + 1];
             for (int j = 0; j < a.length; j++) w[j + 1] = Long.parseLong(a[j]);
+            play(w);
+        } catch (Exception ignored) { // an empty pattern is off
+        }
+    }
+
+    // plays a pattern (off, buzz, pause, buzz ... in ms), the way the app plays its own
+    void play(long[] w) {
+        try {
             VibrationEffect e = VibrationEffect.createWaveform(w, -1);
             Vibrator v = getSystemService(Vibrator.class);
             if (!p.getBoolean("hp", false)) v.vibrate(e);
@@ -283,13 +350,8 @@ public class Fb extends Service {
         final Paint q = new Paint(Paint.ANTI_ALIAS_FLAG);
         float sx, sy;                 // where the finger went down (screen)
         int ox, oy;                   // where the bubble was then
-        boolean held, moved;          // picked up by a hold / the finger moved before the hold
-        final Runnable hold = () -> {
-            held = true;
-            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-            animate().scaleX(1.15f).scaleY(1.15f).setDuration(100);
-            showX();
-        };
+        boolean drag;                 // the finger moved far enough: the bubble follows it
+        VelocityTracker vt;
 
         Bb() {
             super(Fb.this);
@@ -308,74 +370,206 @@ public class Fb extends Service {
             c.drawCircle(r, r, r - 2 * u, q);
             q.setStyle(Paint.Style.FILL);
             q.setColor(th.bg);
-            q.setTextSize(24 * u);
+            q.setTextSize(24 * u * r / (33.5f * u)); // grows with the bubble
             float w = q.measureText(s);
-            if (w > r * 1.45f) q.setTextSize(24 * u * r * 1.45f / w); // long numbers shrink to fit
+            if (w > r * 1.45f) q.setTextSize(q.getTextSize() * r * 1.45f / w); // long text shrinks to fit
             c.drawText(s, r, r - (q.descent() + q.ascent()) / 2, q);
         }
 
-        // a quick tap counts; a hold picks the bubble up and it follows the finger
+        // a tap counts; a drag moves the bubble as soon as the finger has really moved, and where it
+        // is let go it stays; a fling (let go while moving fast) sticks it to the edge it was thrown at
         @Override public boolean onTouchEvent(MotionEvent e) {
+            if (vt == null) vt = VelocityTracker.obtain();
+            MotionEvent c = MotionEvent.obtain(e);
+            c.offsetLocation(e.getRawX() - e.getX(), e.getRawY() - e.getY()); // screen coordinates
+            vt.addMovement(c);
+            c.recycle();
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     sx = e.getRawX();
                     sy = e.getRawY();
                     ox = bp.x;
                     oy = bp.y;
-                    held = false;
-                    moved = false;
-                    postDelayed(hold, 350);
+                    drag = false;
                     return true;
                 case MotionEvent.ACTION_MOVE: {
                     float dx = e.getRawX() - sx, dy = e.getRawY() - sy;
-                    if (!held) { // moving before the hold is neither a tap nor a drag
-                        if (Math.hypot(dx, dy) > ViewConfiguration.get(getContext()).getScaledTouchSlop()) {
-                            moved = true;
-                            removeCallbacks(hold);
-                        }
-                        return true;
+                    if (!drag) {
+                        if (Math.hypot(dx, dy) < 2 * ViewConfiguration.get(getContext()).getScaledTouchSlop()) return true;
+                        drag = true;
+                        dragging = true;
+                        hideSay();
+                        showX();
+                        animate().scaleX(1.15f).scaleY(1.15f).setDuration(100);
                     }
                     bp.x = ox + (int) dx;
                     bp.y = oy + (int) dy;
                     clamp();
                     wm.updateViewLayout(this, bp);
+                    boolean h = over();
                     if (xt != null) {
-                        xt.hot = over();
+                        if (h && !xt.hot) play(NEAR); // got over the X
+                        xt.hot = h;
                         xt.invalidate();
                     }
                     return true;
                 }
                 case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    removeCallbacks(hold);
-                    if (held) drop();
-                    else if (!moved && e.getActionMasked() == MotionEvent.ACTION_UP) tap();
-                    held = false;
+                case MotionEvent.ACTION_CANCEL: {
+                    vt.computeCurrentVelocity(1000);
+                    float vx = vt.getXVelocity(), vy = vt.getYVelocity();
+                    vt.recycle();
+                    vt = null;
+                    if (drag) release(vx, vy);
+                    else if (e.getActionMasked() == MotionEvent.ACTION_UP) tap();
+                    drag = false;
+                    dragging = false;
                     return true;
+                }
             }
             return true;
         }
 
-        // let go: on the X it closes, else it snaps to the nearest side and the place is remembered
-        void drop() {
+        // let go: on the X it closes (a different buzz from getting over it); thrown fast it glides
+        // to the edge it was thrown at; otherwise it stays right here
+        void release(float vx, float vy) {
             animate().scaleX(1f).scaleY(1f).setDuration(100);
             if (over()) {
+                play(GONE);
                 stopSelf();
                 return;
             }
             hideX();
-            final int to = bp.x + size / 2 < W / 2 ? 0 : W - size;
-            ValueAnimator a = ValueAnimator.ofInt(bp.x, to);
-            a.setDuration(160);
+            if (Math.hypot(vx, vy) > 800 * u) {
+                int tx = bp.x, ty = bp.y;
+                if (Math.abs(vx) >= Math.abs(vy)) tx = vx < 0 ? 0 : W - size;
+                else ty = vy < 0 ? 0 : H - size;
+                glide(tx, ty);
+            } else {
+                save();
+            }
+        }
+
+        void glide(final int tx, final int ty) {
+            final int fx = bp.x, fy = bp.y;
+            ValueAnimator a = ValueAnimator.ofFloat(0f, 1f);
+            a.setDuration(240);
+            a.setInterpolator(new DecelerateInterpolator());
             a.addUpdateListener(va -> {
-                bp.x = (Integer) va.getAnimatedValue();
+                float f = (Float) va.getAnimatedValue();
+                bp.x = fx + (int) ((tx - fx) * f);
+                bp.y = fy + (int) ((ty - fy) * f);
                 try {
                     wm.updateViewLayout(this, bp);
                 } catch (RuntimeException ignored) {
                 }
             });
+            a.addListener(new AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(Animator an) {
+                    save();
+                }
+            });
             a.start();
-            p.edit().putInt("bx", to).putInt("by", bp.y).apply();
+        }
+    }
+
+    // A comic speech bubble beside the head with the new slide: it fades in, stays a moment (longer
+    // for more text) and fades out. It does not take touches. A new one replaces the one showing.
+    void say(String text) {
+        hideSay();
+        if (text == null || text.isEmpty()) return;
+        float tl = 14 * u, m = 6 * u, pad = 12 * u;                  // tail, room for the outline, padding
+        float cx = bp.x + size / 2f, cy = bp.y + size / 2f;
+        boolean right = cx > W / 2f;                                 // head on the right: the bubble goes to its left
+        float room = (right ? bp.x : W - bp.x - size) - 4 * u - tl - 2 * m;
+        float bw = Math.max(110 * u, Math.min(280 * u, room));       // the body's width
+        TextPaint tp = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        tp.setColor(0xFF000000);
+        tp.setTextSize(15 * u);
+        tp.setTypeface(Typeface.DEFAULT_BOLD);
+        StaticLayout sl = StaticLayout.Builder.obtain(text, 0, text.length(), tp, (int) (bw - 2 * pad))
+                .setAlignment(Layout.Alignment.ALIGN_CENTER).setMaxLines(4)
+                .setEllipsize(TextUtils.TruncateAt.END).build();
+        float bh = sl.getHeight() + 2 * pad;
+        int ww = (int) (bw + tl + 2 * m), wh = (int) (bh + 2 * m);
+        yp = new WindowManager.LayoutParams(ww, wh, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT);
+        yp.gravity = Gravity.TOP | Gravity.START;
+        yp.x = Math.max(0, Math.min(W - ww, (int) (right ? bp.x - 4 * u - ww : bp.x + size + 4 * u)));
+        yp.y = Math.max(0, Math.min(H - wh, (int) (cy - wh / 2f)));
+        final Sp v = new Sp(sl, bw, bh, tl, m, pad, cy - yp.y, right);
+        v.setAlpha(0f);
+        try {
+            wm.addView(v, yp);
+        } catch (RuntimeException e) {
+            return;
+        }
+        speech = v;
+        v.animate().alpha(1f).setDuration(180);
+        fadeR = () -> v.animate().alpha(0f).setDuration(320).withEndAction(() -> {
+            if (speech == v) hideSay();
+        });
+        v.postDelayed(fadeR, 1800 + 25 * Math.min(text.length(), 60));
+    }
+
+    void hideSay() {
+        if (speech == null) return;
+        Sp v = speech;
+        speech = null;
+        v.animate().cancel();
+        v.removeCallbacks(fadeR);
+        try {
+            wm.removeView(v);
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    // the speech bubble: a white rounded body with a thick black outline, a hard shadow and a tail
+    // that points at the head, bold black text in it
+    class Sp extends View {
+        final StaticLayout sl;
+        final Path body = new Path();
+        final Paint q = new Paint(Paint.ANTI_ALIAS_FLAG);
+        final float left, top, pad;
+
+        Sp(StaticLayout l, float bw, float bh, float tl, float m, float padding, float tailY, boolean tailRight) {
+            super(Fb.this);
+            sl = l;
+            pad = padding;
+            left = m + (tailRight ? 0 : tl);
+            top = m;
+            float r = 14 * u;
+            RectF rc = new RectF(left, top, left + bw, top + bh);
+            body.addRoundRect(rc, r, r, Path.Direction.CW);
+            float ty = Math.max(rc.top + r + 4 * u, Math.min(rc.bottom - r - 4 * u, tailY)); // where the tail leaves the body
+            float edge = tailRight ? rc.right : rc.left, tip = tailRight ? rc.right + tl : rc.left - tl;
+            Path tail = new Path();
+            tail.moveTo(edge, ty - 9 * u);
+            tail.lineTo(tip, Math.max(top, Math.min(top + bh, tailY)));
+            tail.lineTo(edge, ty + 9 * u);
+            tail.close();
+            body.op(tail, Path.Op.UNION); // one outline round the body and the tail
+            q.setStrokeJoin(Paint.Join.ROUND);
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            q.setStyle(Paint.Style.FILL);
+            q.setColor(0x66000000); // the hard shadow, a bit down and to the right
+            c.save();
+            c.translate(3 * u, 3 * u);
+            c.drawPath(body, q);
+            c.restore();
+            q.setColor(0xFFFFFFFF);
+            c.drawPath(body, q);
+            q.setStyle(Paint.Style.STROKE);
+            q.setStrokeWidth(2.5f * u);
+            q.setColor(0xFF000000);
+            c.drawPath(body, q);
+            c.save();
+            c.translate(left + pad, top + pad);
+            sl.draw(c);
+            c.restore();
         }
     }
 

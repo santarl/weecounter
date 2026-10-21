@@ -113,11 +113,13 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
             if (i == 6)
                 l.addView(tv("Vibration notation: milliseconds, alternating buzz and pause. "
                         + "\"40 60 40\" = buzz 40, pause 60, buzz 40. Empty = off.", th.dim, m));
+            if (i == 10)
+                l.addView(tv("The floating counter is in the menu. 0 is the automatic size, a fifth bigger than it used to be.", th.dim, m));
             l.addView(tv(M.D[i][2], th.fg, m));
             e[i] = new EditText(this);
             e[i].setTextColor(th.fg);
             e[i].setSingleLine();
-            if (i < 5) e[i].setInputType(2); // numbers only
+            if (i < 5 || i == 10) e[i].setInputType(2); // numbers only
             l.addView(e[i]);
         }
         aw = cb("Keep screen on");

@@ -75,7 +75,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         {"vh", "40 60 40", "Vibration: hold (panel / counting view)"},
         {"vr", "80", "Vibration: reset"},
         {"vl", "500 50 500", "Vibration: count reached"},
-        {"vc", "50 50 50 50 50", "Vibration: lap"}};
+        {"vc", "50 50 50 50 50", "Vibration: lap"},
+        {"bs", "0", "Floating counter: diameter in px (0 = automatic)"}};
 
     // counting views: 0 blackout, 1 dots, 2 tally, 3 game (a self-playing snake)
     static final String[] NM = {"blackout", "dots", "tally", "game"};
@@ -132,6 +133,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // The floating counter (Fb) counts the plain counter or the slides of the profile in the settings
     // file: take over what it counted. live: the counts are written down at every redraw.
     boolean live;
+    static boolean fg; // a window of the app is on screen (the floating counter then needs no speech bubble)
     final SharedPreferences.OnSharedPreferenceChangeListener nl = (sp, key) -> {
         if (key != null && (pr == null ? key.equals("n") : key.equals("cn:" + pf) || key.equals("cu:" + pf)))
             takeOver();
@@ -568,6 +570,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         dnd();
         sync();
         live = true; // from here on the counts are written down at every redraw
+        fg = true;
         draw();
         f.removeCallbacks(this);
         run();
@@ -582,6 +585,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     @Override protected void onPause() {
         super.onPause();
         live = false;
+        fg = false;
         p.unregisterOnSharedPreferenceChangeListener(nl);
         f.removeCallbacks(this);
         land();
