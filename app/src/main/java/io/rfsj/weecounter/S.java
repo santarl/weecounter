@@ -45,7 +45,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
     ScrollView sv;
     TextView tm;    // the default theme
     EditText[] e = new EditText[M.D.length];
-    CheckBox aw, dk, hp, wk;
+    CheckBox aw, dk, hp, wk, fa;
     TextView df, dd, dx, vv, vz, dr, rl, ver, lnk, chk, res;
     NotificationManager nm;
     int dm, vm;
@@ -128,6 +128,9 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         l.addView(dk);
         wk = cb("Check for new profiles weekly");
         l.addView(wk);
+        fa = cb("Float the counter when the app is minimized");
+        l.addView(fa);
+        l.addView(tv("Needs \"Display over other apps\": the Floating counter item of the menu asks for it the first time.", th.dim, m));
 
         df = tv("RESET TO DEFAULTS", th.bad, m);
         df.setOnClickListener(this);
@@ -187,6 +190,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         dk.setChecked(!d && p.getBoolean("dk", false));
         hp.setChecked(!d && p.getBoolean("hp", false));
         wk.setChecked(d || p.getBoolean("wk", true));
+        fa.setChecked(d || p.getBoolean("fa", true));
         dm = d ? 0 : p.getInt("dn", 0);
         vm = d ? 0 : p.getInt("vk", 0);
         dnd();
@@ -356,7 +360,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         SharedPreferences.Editor x = p.edit();
         for (int i = 0; i < e.length; i++)
             x.putString(M.D[i][0], e[i].getText().toString());
-        x.putBoolean("aw", aw.isChecked()).putBoolean("dk", dk.isChecked()).putBoolean("hp", hp.isChecked()).putBoolean("wk", wk.isChecked())
+        x.putBoolean("aw", aw.isChecked()).putBoolean("dk", dk.isChecked()).putBoolean("hp", hp.isChecked()).putBoolean("wk", wk.isChecked()).putBoolean("fa", fa.isChecked())
                 .putInt("dn", dm).putInt("vk", vm).apply();
     }
 }

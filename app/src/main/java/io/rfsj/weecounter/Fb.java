@@ -50,6 +50,8 @@ import java.util.Arrays;
 // the new slide fades in beside the head and out again.
 public class Fb extends Service {
     static boolean on;                // the bubble is up
+    static boolean auto;              // it came up by itself when the app was minimized (see App)
+    static boolean autoNext;          // the next one is started by App
     static final String STOP = "io.rfsj.weecounter.STOP_BUBBLE";
     WindowManager wm;
     SharedPreferences p;
@@ -99,6 +101,12 @@ public class Fb extends Service {
                 .build();
         if (Build.VERSION.SDK_INT >= 34) startForeground(1, nf, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
         else startForeground(1, nf);
+        auto = autoNext;
+        autoNext = false;
+        if (auto && App.fg) { // the app was back before the bubble was up
+            stopSelf();
+            return;
+        }
 
         bb = new Bb();
         refresh();
@@ -133,6 +141,7 @@ public class Fb extends Service {
 
     @Override public void onDestroy() {
         on = false;
+        auto = false;
         p.unregisterOnSharedPreferenceChangeListener(nl);
         hideX();
         hideSay();
@@ -273,7 +282,7 @@ public class Fb extends Service {
             String old = last;
             last = pf + ":" + cu;
             // another slide while the app is not on screen: the speech bubble says which
-            if (old.startsWith(pf + ":") && !old.equals(last) && !M.fg && !dragging)
+            if (old.startsWith(pf + ":") && !old.equals(last) && !App.fg && !dragging)
                 say(cu >= k ? "\u2713" : slideText(pr, cu), false);
         }
         bb.invalidate();

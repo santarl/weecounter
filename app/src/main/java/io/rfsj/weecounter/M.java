@@ -133,12 +133,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // The floating counter (Fb) counts the plain counter or the slides of the profile in the settings
     // file: take over what it counted. live: the counts are written down at every redraw.
     boolean live;
-    static boolean fg; // a window of the app is on screen (the floating counter then needs no speech bubble)
     final SharedPreferences.OnSharedPreferenceChangeListener nl = (sp, key) -> {
         if (key != null && (pr == null ? key.equals("n") : key.equals("cn:" + pf) || key.equals("cu:" + pf)))
             takeOver();
     };
     float zs;        // text scale while pinching
+    boolean bz;      // the finger went down near the bottom edge, where an upward swipe is the system's home gesture
     float zmx = 1;   // the largest scale at which the text still fits its rectangle (the limit of a pinch)
     boolean ful;     // the text fills its rectangle (cannot grow): the expand button shows
     Gl xb;           // the expand button, at the bottom right of the text rectangle
@@ -570,7 +570,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         dnd();
         sync();
         live = true; // from here on the counts are written down at every redraw
-        fg = true;
         draw();
         f.removeCallbacks(this);
         run();
@@ -585,7 +584,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     @Override protected void onPause() {
         super.onPause();
         live = false;
-        fg = false;
         p.unregisterOnSharedPreferenceChangeListener(nl);
         f.removeCallbacks(this);
         land();
@@ -1226,11 +1224,13 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     tx = e.getX();
                     ty = e.getY();
                     sw = false;
+                    bz = ty > getResources().getDisplayMetrics().heightPixels - dp(56);
                     break;
                 case MotionEvent.ACTION_MOVE: {
                     if (sw) return true;
                     float dx = e.getX() - tx, dy = e.getY() - ty;
                     if (Math.max(Math.abs(dx), Math.abs(dy)) < dp(64)) break;
+                    if (bz && dy < 0 && Math.abs(dy) > Math.abs(dx)) break; // up from the bottom edge: not the next slide
                     sw = true;
                     swipe(dx, dy);
                     e.setAction(MotionEvent.ACTION_CANCEL); // views drop their pending tap / hold
