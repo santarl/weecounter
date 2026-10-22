@@ -586,7 +586,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         super.onPause();
         live = false;
         // what the floating counter will count if it comes up by itself: the window that was left last
-        if (!Fb.on) p.edit().putString("bt", pr != null ? pf : "").apply();
+        if (!Fb.on) p.edit().putString("bt", pr != null ? pf : "").putString("bw", pin != null ? pin : "").apply();
         p.unregisterOnSharedPreferenceChangeListener(nl);
         f.removeCallbacks(this);
         land();
@@ -660,7 +660,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
             return;
         }
-        p.edit().putString("bt", pr != null ? pf : "").apply(); // it counts what this window is on
+        // it counts what this window is on, and a tap on its notification comes back to this window
+        p.edit().putString("bt", pr != null ? pf : "").putString("bw", pin != null ? pin : "").apply();
         startForegroundService(new Intent(this, Fb.class));
     }
 
@@ -923,7 +924,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             return;
         }
         if (fo != null && fo.getVisibility() == View.VISIBLE) {
-            fo.setVisibility(View.GONE);
+            closeSheet();
             return;
         }
         if (sp != null && sp.getVisibility() == View.VISIBLE) {
@@ -1482,11 +1483,15 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     // The focus button: a sheet with the selector of the counting view and a slider; hold the knob
     // and push it to the end to go into focus (hold anywhere to leave it again).
-    void focusSheet() {
+    // The sheet of the focus, menu and adjust buttons: a card of the theme on a dim screen. A tap outside
+    // it, or Back, closes it. Only it gets touches while it is up. gravity: where the card sits (the adjust
+    // sheet is at the top, so the keyboard does not cover it); scroll: for a card that may be taller than
+    // the screen. The title is the first child of the card.
+    LinearLayout sheet(String title, String sub, int gravity, boolean scroll) {
         if (fo != null) f.removeView(fo);
         fo = new FrameLayout(this);
         fo.setBackgroundColor((th.bg & 0xFFFFFF) | 0xEE000000);
-        fo.setOnClickListener(v -> fo.setVisibility(View.GONE)); // a tap outside the card
+        fo.setOnClickListener(v -> closeSheet()); // a tap outside the card
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setClickable(true);
@@ -1496,16 +1501,41 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         g.setCornerRadius(dp(20));
         card.setBackground(g);
         TextView t1 = new TextView(this);
-        t1.setText("focus");
+        t1.setText(title);
         t1.setTextSize(22);
         t1.setTextColor(th.fg);
         card.addView(t1);
-        TextView t2 = new TextView(this);
-        t2.setText("Counts on the view you pick, nothing else on the screen. Hold anywhere to leave it.");
-        t2.setTextSize(14);
-        t2.setTextColor(th.dim);
-        t2.setPadding(0, dp(6), 0, dp(10));
-        card.addView(t2);
+        if (sub != null) {
+            TextView t2 = new TextView(this);
+            t2.setText(sub);
+            t2.setTextSize(14);
+            t2.setTextColor(th.dim);
+            t2.setPadding(0, dp(6), 0, dp(10));
+            card.addView(t2);
+        }
+        View root = card;
+        if (scroll) {
+            ScrollView sv = new ScrollView(this);
+            sv.addView(card);
+            root = sv;
+        }
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, gravity);
+        lp.setMargins(dp(24), gravity == Gravity.TOP ? dp(56) : 0, dp(24), 0);
+        fo.addView(root, lp);
+        f.addView(fo, new FrameLayout.LayoutParams(-1, -1));
+        return card;
+    }
+
+    void closeSheet() {
+        if (fo == null) return;
+        android.view.inputmethod.InputMethodManager im = getSystemService(android.view.inputmethod.InputMethodManager.class);
+        if (im != null) im.hideSoftInputFromWindow(fo.getWindowToken(), 0);
+        fo.setVisibility(View.GONE);
+    }
+
+    void focusSheet() {
+        LinearLayout card = sheet("focus", "Counts on the view you pick, nothing else on the screen. Hold anywhere to leave it.",
+                Gravity.CENTER, false);
         final TextView vb = sb("view: " + NM[mode], th.ac, null);
         vb.setTextSize(18);
         vb.setOnClickListener(v -> {
@@ -1516,18 +1546,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         });
         card.addView(vb);
         card.addView(new Sl(this, () -> {
-            fo.setVisibility(View.GONE);
+            closeSheet();
             cv = true;
             z(vh);
             draw();
         }), new LinearLayout.LayoutParams(-1, dp(64)));
-        TextView no = sb("cancel", th.dim, v -> fo.setVisibility(View.GONE));
+        TextView no = sb("cancel", th.dim, v -> closeSheet());
         no.setGravity(Gravity.CENTER);
         card.addView(no);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER);
-        lp.setMargins(dp(24), 0, dp(24), 0);
-        fo.addView(card, lp);
-        f.addView(fo, new FrameLayout.LayoutParams(-1, -1));
     }
 
     // "hold and push" slider: drag the knob from the left end to the right end to run go
@@ -1944,7 +1970,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         final boolean prof = pr != null;
         final int k = prof ? pr.c.length : 0;
         final ArrayList<int[]> ust = new ArrayList<>();
-        final AlertDialog[] dg = new AlertDialog[1];
+        final LinearLayout card = sheet("adjust", null, Gravity.TOP, true);
+        final TextView tt = (TextView) card.getChildAt(0); // the title: the slide
         final EditText ec = new EditText(this), et = new EditText(this);
         for (EditText e : new EditText[]{ec, et}) {
             e.setInputType(InputType.TYPE_CLASS_NUMBER);
@@ -1952,6 +1979,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             e.setTextColor(th.fg);
             e.setHintTextColor(th.dim);
             e.setGravity(Gravity.CENTER);
+            e.setSelectAllOnFocus(true);
+            e.setBackgroundTintList(android.content.res.ColorStateList.valueOf(th.dim));
         }
         et.setHint(prof ? "as in the profile" : "off");
         final TextView ud = dtx("Undo", th.ac);
@@ -1960,21 +1989,30 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         for (TextView v : new TextView[]{ud, rc, rp}) v.setPadding(0, dp(14), 0, dp(14));
         final LinearLayout fl = new LinearLayout(this);
         fl.setOrientation(LinearLayout.VERTICAL);
+        fl.setPadding(0, dp(8), 0, 0);
         fl.addView(drow(dtx("Count", th.fg), ec));
         fl.addView(drow(dtx(prof ? "Target of this slide" : "Goal (empty = off)", th.fg), et));
         fl.addView(rc);
-        final LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(8), dp(20), dp(4));
-        root.addView(fl);
-        root.addView(ud);
-        if (prof) root.addView(rp);
+        card.addView(fl);
+        card.addView(ud);
+        if (prof) card.addView(rp);
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER);
+        final TextView sv = sb("Save", th.ac, null), cb = sb("Close", th.dim, v -> closeSheet());
+        for (TextView b2 : new TextView[]{sv, cb}) {
+            b2.setTextSize(18);
+            b2.setGravity(Gravity.CENTER);
+            bar.addView(b2, new LinearLayout.LayoutParams(0, -2, 1f));
+        }
+        card.addView(bar);
 
-        // shows the current state: the title, the two fields, and whether there is something to undo
+        // Resets and Undo happen at once and the sheet stays open, so a slip can be undone; Save applies
+        // the two fields. This shows the current state: the title, the two fields, whether there is
+        // something to undo.
         final Runnable rf = () -> {
             boolean fin = prof && cur >= k;
             int s = prof ? Math.min(cur, k - 1) : 0;
-            dg[0].setTitle(!prof ? "Counter" : fin ? "Profile completed" : (s + 1) + ". " + pr.ti[s]);
+            tt.setText(!prof ? "Counter" : fin ? "Profile completed" : (s + 1) + ". " + pr.ti[s]);
             fl.setVisibility(fin ? View.GONE : View.VISIBLE);
             if (!fin) {
                 ec.setText("" + (prof ? cn[s] : n));
@@ -2013,63 +2051,66 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             draw();
             rf.run();
         });
-        dg[0] = th.dlg(this).setView(root)
-                .setPositiveButton("Save", (d, w) -> {
-                    if (!(prof && cur >= k)) {
-                        int s = prof ? cur : 0;
-                        if (ec.getText().length() > 0) { // an empty count is left as it is
-                            if (prof) {
-                                cn[s] = num(ec);
-                            } else {
-                                n = num(ec);
-                                keepN();
-                            }
-                        }
-                        if (prof) {
-                            setTarget(s, num(et));
-                        } else {
-                            mx = num(et);
-                            p.edit().putString("mx", "" + mx).apply();
-                        }
+        sv.setOnClickListener(v -> {
+            if (!(prof && cur >= k)) {
+                int s = prof ? cur : 0;
+                if (ec.getText().length() > 0) { // an empty count is left as it is
+                    if (prof) {
+                        cn[s] = num(ec);
+                    } else {
+                        n = num(ec);
+                        keepN();
                     }
-                    draw();
-                })
-                .setNegativeButton("Close", null).show();
+                }
+                if (prof) {
+                    setTarget(s, num(et));
+                } else {
+                    mx = num(et);
+                    p.edit().putString("mx", "" + mx).apply();
+                }
+            }
+            draw();
+            closeSheet();
+        });
         rf.run();
     }
 
     // top-left menu
     void menu(View anchor) {
-        PopupMenu m = new PopupMenu(new ContextThemeWrapper(this, th.light ? android.R.style.Theme_DeviceDefault_Light
-                : android.R.style.Theme_DeviceDefault), anchor);
-        // (an order below 0 is not allowed: the menu throws)
-        if (!pf.isEmpty()) m.getMenu().add(0, 6, 0, sm ? "Profile mode: " + pf : "Simple mode");
-        m.getMenu().add(0, 1, 0, "Settings");
-        m.getMenu().add(0, 2, 1, "Profiles");
-        m.getMenu().add(0, 3, 2, "Edit layout");
-        if (pr != null) m.getMenu().add(0, 4, 3, "Goto");
-        m.getMenu().add(0, 5, 4, "Theme");
-        m.getMenu().add(0, 7, 5, "Reminders");
-        m.getMenu().add(0, 8, 6, Fb.on ? "Floating counter: on" : "Floating counter");
-        m.setOnMenuItemClickListener(i -> {
-            int id = i.getItemId();
-            if (id == 3) enterEdit();
-            else if (id == 4) goTo();
-            else if (id == 5) strip();
-            else if (id == 6) toggleMode();
-            else if (id == 8) bubble();
-            else if (id == 7) {
-                p.edit().putString("pf", pf).apply(); // the screen has the theme of this window
-                startActivity(new Intent(this, N.class));
-            }
-            else {
-                p.edit().putString("pf", pf).apply(); // the screens show this window's profile and may change it
-                chain = true;
-                startActivity(new Intent(this, id == 1 ? S.class : P.class));
-            }
-            return true;
+        LinearLayout card = sheet("menu", null, Gravity.CENTER, true);
+        if (!pf.isEmpty()) mrow(card, sm ? "Profile mode: " + pf : "Simple mode", () -> toggleMode());
+        mrow(card, "Settings", () -> {
+            p.edit().putString("pf", pf).apply(); // the screens show this window's profile and may change it
+            chain = true;
+            startActivity(new Intent(this, S.class));
         });
-        m.show();
+        mrow(card, "Profiles", () -> {
+            p.edit().putString("pf", pf).apply();
+            chain = true;
+            startActivity(new Intent(this, P.class));
+        });
+        mrow(card, "Edit layout", () -> enterEdit());
+        if (pr != null) mrow(card, "Goto", () -> goTo());
+        mrow(card, "Theme", () -> strip());
+        mrow(card, "Reminders", () -> {
+            p.edit().putString("pf", pf).apply(); // the screen has the theme of this window
+            startActivity(new Intent(this, N.class));
+        });
+        mrow(card, Fb.on ? "Floating counter: on" : "Floating counter", () -> bubble());
+        TextView no = sb("cancel", th.dim, v -> closeSheet());
+        no.setGravity(Gravity.CENTER);
+        card.addView(no);
+    }
+
+    // a row of the menu sheet: the sheet closes, then the action runs
+    void mrow(LinearLayout card, String label, Runnable act) {
+        TextView t = sb(label, th.fg, v -> {
+            closeSheet();
+            act.run();
+        });
+        t.setTextSize(18);
+        t.setPadding(dp(7), dp(12), dp(7), dp(12));
+        card.addView(t);
     }
 
     // Pinch (dhikr panel only): resizes the text of the current slide and view; the scale is

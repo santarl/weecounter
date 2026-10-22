@@ -92,11 +92,14 @@ public class Fb extends Service {
         nm.createNotificationChannel(new NotificationChannel("fb", "Floating counter", NotificationManager.IMPORTANCE_LOW));
         // a tap on the notification opens the window of what is counted: the profile's own window (the
         // same intent as its shortcut, so an open window of it comes to the front), or the main window
-        String bt = prof();
+        // (a window opened for one profile has that profile in its address, "bw"; the main window, where
+        // a profile is just the one selected, is opened like the launcher does, or it would be opened twice)
+        String bt = prof(), bw = p.getString("bw", "");
         if (bt != null && !getSharedPreferences("d", 0).contains(bt)) bt = null; // the profile is gone
-        Intent open = bt == null
+        if (!bw.isEmpty() && !getSharedPreferences("d", 0).contains(bw)) bw = "";
+        Intent open = bw.isEmpty()
                 ? new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClass(this, M.class)
-                : new Intent(this, M.class).setAction(Intent.ACTION_VIEW).setData(Uri.parse("wee://profile/" + Uri.encode(bt)));
+                : new Intent(this, M.class).setAction(Intent.ACTION_VIEW).setData(Uri.parse("wee://profile/" + Uri.encode(bw)));
         Notification nf = new Notification.Builder(this, "fb").setSmallIcon(N.small())
                 .setContentTitle("Floating counter: " + (bt == null ? "plain counter" : bt))
                 .setContentText("Tap here to open it. Tap the bubble to count, hold it to move it.")
