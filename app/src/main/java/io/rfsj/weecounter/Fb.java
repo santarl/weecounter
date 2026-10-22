@@ -12,6 +12,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -70,7 +71,7 @@ public class Fb extends Service {
     static final long[] BUZZ_INFO = {0, 20, 40, 20};   // dropped on the i: two short ones
     final SharedPreferences.OnSharedPreferenceChangeListener nl = (sp, k) -> {
         if ("bs".equals(k)) resize();
-        if (k == null || k.equals("n") || k.equals("pf") || k.equals("pm") || k.startsWith("cn:") || k.startsWith("cu:")
+        if (k == null || k.equals("n") || k.equals("bt") || k.equals("pf") || k.equals("pm") || k.startsWith("cn:") || k.startsWith("cu:")
                 || k.startsWith("rp:") || k.startsWith("th")) // the app counted or changed profile, theme or repeats
             refresh();
     };
@@ -89,12 +90,19 @@ public class Fb extends Service {
         size = sizePx();
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel("fb", "Floating counter", NotificationManager.IMPORTANCE_LOW));
+        // a tap on the notification opens the window of what is counted: the profile's own window (the
+        // same intent as its shortcut, so an open window of it comes to the front), or the main window
+        String bt = prof();
+        if (bt != null && !getSharedPreferences("d", 0).contains(bt)) bt = null; // the profile is gone
+        Intent open = bt == null
+                ? new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClass(this, M.class)
+                : new Intent(this, M.class).setAction(Intent.ACTION_VIEW).setData(Uri.parse("wee://profile/" + Uri.encode(bt)));
         Notification nf = new Notification.Builder(this, "fb").setSmallIcon(N.small())
-                .setContentTitle("Floating counter")
-                .setContentText("Tap the bubble to count. Hold it to move it, drop it on the X to close.")
+                .setContentTitle("Floating counter: " + (bt == null ? "plain counter" : bt))
+                .setContentText("Tap here to open it. Tap the bubble to count, hold it to move it.")
                 .setOngoing(true)
-                .setContentIntent(PendingIntent.getActivity(this, 0,
-                        new Intent(this, M.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE))
+                .setContentIntent(PendingIntent.getActivity(this, 0, open,
+                        PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT))
                 .addAction(new Notification.Action.Builder(N.small(), "Close",
                         PendingIntent.getService(this, 1, new Intent(this, Fb.class).setAction(STOP),
                                 PendingIntent.FLAG_IMMUTABLE)).build())
@@ -236,10 +244,12 @@ public class Fb extends Service {
         }
     }
 
-    // the profile the app is in (profile mode), or null for the plain counter
+    // The profile the bubble counts, or null for the plain counter. "bt" is set by the window that
+    // starts it (the menu item: that window's profile) or, when it comes up by itself, by the window
+    // that was left last (see M.onPause); it does not change while the bubble is up.
     String prof() {
-        String pf = p.getString("pf", "");
-        return pf.isEmpty() || !p.getBoolean("pm", false) ? null : pf;
+        String bt = p.getString("bt", "");
+        return bt.isEmpty() ? null : bt;
     }
 
     // the profile with its repeats, or null if it is gone

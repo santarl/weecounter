@@ -138,6 +138,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             takeOver();
     };
     float zs;        // text scale while pinching
+    boolean ign;     // this touch is no swipe: it began on the focus sheet or the theme strip, or in focus mode
     boolean bz;      // the finger went down near the bottom edge, where an upward swipe is the system's home gesture
     float zmx = 1;   // the largest scale at which the text still fits its rectangle (the limit of a pinch)
     boolean ful;     // the text fills its rectangle (cannot grow): the expand button shows
@@ -584,6 +585,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     @Override protected void onPause() {
         super.onPause();
         live = false;
+        // what the floating counter will count if it comes up by itself: the window that was left last
+        if (!Fb.on) p.edit().putString("bt", pr != null ? pf : "").apply();
         p.unregisterOnSharedPreferenceChangeListener(nl);
         f.removeCallbacks(this);
         land();
@@ -657,6 +660,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
             return;
         }
+        p.edit().putString("bt", pr != null ? pf : "").apply(); // it counts what this window is on
         startForegroundService(new Intent(this, Fb.class));
     }
 
@@ -1182,8 +1186,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // Swipes (dhikr only), like reels: up = next slide (counts as done), down = previous slide,
     // left / right = next / previous view. A recognised swipe never counts as a tap or a hold.
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
-        if (fo != null && fo.getVisibility() == View.VISIBLE) return super.dispatchTouchEvent(e); // the focus sheet: only it gets touches
+        if (fo != null && fo.getVisibility() == View.VISIBLE) { // the focus sheet: only it gets touches, and this touch is no swipe
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) ign = true;
+            return super.dispatchTouchEvent(e);
+        }
         if (sp != null && sp.getVisibility() == View.VISIBLE) { // the theme strip is up: only it gets touches
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) ign = true;
             if (e.getY() >= sp.getTop()) return super.dispatchTouchEvent(e);
             if (e.getActionMasked() == MotionEvent.ACTION_UP) sp.setVisibility(View.GONE); // a tap outside closes it
             return true;
@@ -1224,10 +1232,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     tx = e.getX();
                     ty = e.getY();
                     sw = false;
+                    ign = cv; // in focus mode (and for the rest of the touch that leaves it) nothing is a swipe
                     bz = ty > getResources().getDisplayMetrics().heightPixels - dp(56);
                     break;
                 case MotionEvent.ACTION_MOVE: {
                     if (sw) return true;
+                    if (ign) break;
                     float dx = e.getX() - tx, dy = e.getY() - ty;
                     if (Math.max(Math.abs(dx), Math.abs(dy)) < dp(64)) break;
                     if (bz && dy < 0 && Math.abs(dy) > Math.abs(dx)) break; // up from the bottom edge: not the next slide
