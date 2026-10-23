@@ -671,6 +671,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // first start of a new install (first), and is in the menu as Help.
     void help(boolean first) {
         LinearLayout card = sheet("Help", first ? "A short tour. You can open it again from the menu: Help." : null, true, false);
+        hrow(card, "Quick start", "The button at the end of this tour gets the morning and evening adhkar ready: it downloads them and "
+                + "sets a reminder for each. You can run it again from here whenever you like.");
         hrow(card, "Counting", "Tap anywhere on the counting screen to count. The -1 button takes one back.");
         hrow(card, "Slides and views", "In a profile a slide moves on by itself when its count is done. Swipe up for the next slide and down for the "
                 + "previous one; swipe left or right for the other views of a slide (the Arabic, the transliteration, the meaning). "
@@ -692,11 +694,133 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         hrow(card, "Home screen shortcuts", "Profiles, then shortcut under a profile, puts it on your home screen, in its own window. "
                 + "The icon can be an emoji, not only a letter: try \uD83C\uDF04 for the morning adhkar and \uD83C\uDF06 for the evening ones.");
         hrow(card, "A bug or an idea", "Settings has a link to the GitHub issues page: report a bug or ask for a feature there.");
-        TextView close = sb("Close", th.ac, v -> closeSheet());
-        close.setTextSize(18);
-        close.setGravity(Gravity.CENTER);
-        close.setPadding(dp(7), dp(18), dp(7), dp(6));
-        card.addView(close);
+        // the end: on the first start Skip or Next (to the quick start); later Close or Quick start
+        LinearLayout bar = new LinearLayout(this);
+        bar.setPadding(0, dp(12), 0, 0);
+        TextView no = sb(first ? "Skip" : "Close", th.dim, v -> closeSheet());
+        TextView qs = sb(first ? "Next" : "Quick start", th.ac, v -> {
+            closeSheet();
+            quickStart();
+        });
+        for (TextView b : new TextView[]{no, qs}) {
+            b.setTextSize(18);
+            b.setGravity(Gravity.CENTER);
+            b.setPadding(dp(7), dp(12), dp(7), dp(6));
+            bar.addView(b, new LinearLayout.LayoutParams(0, -2, 1f));
+        }
+        card.addView(bar);
+    }
+
+    // a row of the quick start: a label and a time, hours and minutes
+    LinearLayout trow(String label, EditText h, EditText m) {
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(0, dp(6), 0, 0);
+        r.addView(dtx(label, th.fg), new LinearLayout.LayoutParams(0, -2, 1f));
+        r.addView(h, new LinearLayout.LayoutParams(dp(56), -2));
+        r.addView(dtx(":", th.fg));
+        r.addView(m, new LinearLayout.LayoutParams(dp(56), -2));
+        return r;
+    }
+
+    // Quick start: the morning and evening adhkar of the profile repo downloaded, and a reminder for each
+    // that stays until it is done, every day, at times that can be changed. Whatever is already there
+    // is left alone, so it is safe to run again.
+    void quickStart() {
+        final LinearLayout card = sheet("Quick start", "Gets the morning and evening adhkar ready. What you already have is left as it is.", true, true);
+        final CheckBox ckd = new CheckBox(this), ckr = new CheckBox(this);
+        ckd.setText("Download the morning and evening adhkar (needs internet)");
+        ckr.setText("Remind me every day, until I have done them");
+        for (CheckBox c : new CheckBox[]{ckd, ckr}) {
+            c.setChecked(true);
+            c.setTextColor(th.fg);
+            card.addView(c);
+        }
+        final EditText[] t = new EditText[4]; // hour and minute of the morning, hour and minute of the evening
+        final int[] at = {5, 0, 16, 0};
+        for (int i = 0; i < 4; i++) {
+            t[i] = new EditText(this);
+            t[i].setInputType(InputType.TYPE_CLASS_NUMBER);
+            t[i].setFilters(new InputFilter[]{new InputFilter.LengthFilter(2)});
+            t[i].setText((at[i] < 10 ? "0" : "") + at[i]);
+            t[i].setTextColor(th.fg);
+            t[i].setGravity(Gravity.CENTER);
+            t[i].setSelectAllOnFocus(true);
+            t[i].setBackgroundTintList(android.content.res.ColorStateList.valueOf(th.dim));
+        }
+        card.addView(trow("Morning reminder", t[0], t[1]));
+        card.addView(trow("Evening reminder", t[2], t[3]));
+        card.addView(dtx("24-hour clock. They can be changed later in the menu: Reminders.", th.dim));
+        final TextView st = dtx("", th.fg);
+        st.setPadding(0, dp(12), 0, 0);
+        card.addView(st);
+        LinearLayout bar = new LinearLayout(this);
+        bar.setPadding(0, dp(8), 0, 0);
+        final TextView no = sb("Not now", th.dim, v -> closeSheet());
+        final TextView go = sb("Set it up", th.ac, null);
+        for (TextView b : new TextView[]{no, go}) {
+            b.setTextSize(18);
+            b.setGravity(Gravity.CENTER);
+            bar.addView(b, new LinearLayout.LayoutParams(0, -2, 1f));
+        }
+        card.addView(bar);
+        go.setOnClickListener(v -> {
+            final int[] tm = new int[4];
+            for (int i = 0; i < 4; i++) {
+                try {
+                    tm[i] = Integer.parseInt(t[i].getText().toString().trim());
+                } catch (Exception e) {
+                    tm[i] = -1;
+                }
+            }
+            if (tm[0] < 0 || tm[0] > 23 || tm[2] < 0 || tm[2] > 23 || tm[1] < 0 || tm[1] > 59 || tm[3] < 0 || tm[3] > 59) {
+                Toast.makeText(this, "Hours are 0 to 23 and minutes 0 to 59", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            final boolean dl = ckd.isChecked(), rm = ckr.isChecked();
+            go.setEnabled(false);
+            go.setText("Working...");
+            no.setVisibility(View.GONE);
+            new Thread(() -> {
+                SharedPreferences d = getSharedPreferences("d", 0);
+                final String[] ids = {"morning-adhkar", "evening-adhkar"}, nice = {"Morning adhkar", "Evening adhkar"};
+                if (dl) B.refresh(p); // the list of the repo (if there is no connection, the last one is used)
+                org.json.JSONArray man = B.list(p);
+                StringBuilder out = new StringBuilder();
+                for (int i = 0; i < 2; i++) {
+                    org.json.JSONObject o = null;
+                    for (int j = 0; j < man.length(); j++) {
+                        org.json.JSONObject q = man.optJSONObject(j);
+                        if (q != null && ids[i].equals(q.optString("id"))) o = q;
+                    }
+                    if (dl) {
+                        if (B.have(p, d, ids[i]) >= 0) out.append("\u2713 ").append(nice[i]).append(": already here\n");
+                        else if (o == null) out.append("\u2717 ").append(nice[i]).append(": not found, is there a connection?\n");
+                        else if (B.install(p, d, o) != null) out.append("\u2713 ").append(nice[i]).append(": downloaded\n");
+                        else out.append("\u2717 ").append(nice[i]).append(": the download failed\n");
+                    }
+                    if (rm) {
+                        String nm = p.getString("id:" + ids[i], null);
+                        if (nm == null || d.getString(nm, null) == null)
+                            out.append("\u2717 ").append(nice[i]).append(": no reminder, it is not here yet\n");
+                        else if (N.has(p, nm)) out.append("\u2713 ").append(nice[i]).append(": has a reminder already\n");
+                        else if (N.add(this, nm, tm[2 * i], tm[2 * i + 1], true) >= 0)
+                            out.append("\u2713 ").append(nice[i]).append(": reminder at ").append(N.hm(tm[2 * i], tm[2 * i + 1])).append("\n");
+                        else out.append("\u2717 ").append(nice[i]).append(": the reminder could not be saved\n");
+                    }
+                }
+                final String res = out.toString().trim();
+                runOnUiThread(() -> {
+                    st.setText(res);
+                    go.setText("Done");
+                    go.setEnabled(true);
+                    go.setOnClickListener(x -> closeSheet());
+                    if (rm && Build.VERSION.SDK_INT >= 33
+                            && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                        requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1); // a reminder needs it to show
+                });
+            }).start();
+        });
     }
 
     // The floating counter (Fb): a bubble over other apps that counts the plain counter, or the current

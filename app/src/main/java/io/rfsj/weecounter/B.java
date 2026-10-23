@@ -204,6 +204,28 @@ public class B extends Activity implements View.OnClickListener {
         ls.addView(r);
     }
 
+    // Downloads a profile of the manifest (o: its entry) and saves it, under the name it already has here
+    // if it is installed (an update), else under the name of the manifest. Returns that name, or null if it
+    // failed. It is slow: not for the main thread. The browse screen and the quick start use it.
+    static String install(SharedPreferences p, SharedPreferences d, JSONObject o) {
+        try {
+            String f = o.getString("f"), id = o.getString("id");
+            if (!f.matches("[\\w./-]+") || f.contains("..")) return null;
+            String s = read(open(BASE + f).getInputStream(), Integer.MAX_VALUE).replace("\uFEFF", "");
+            if (M.parse(s) == null) return null;
+            String nm = p.getString("id:" + id, null);
+            if (nm == null) {
+                nm = o.optString("name", id);
+                if (d.contains(nm)) nm += " (repo)"; // do not overwrite a profile of the same name
+            }
+            d.edit().putString(nm, s).apply();
+            p.edit().putString("id:" + id, nm).apply();
+            return nm;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     @Override public void onClick(View v) {
         if (v.getId() == 1) {
             check();
@@ -216,19 +238,7 @@ public class B extends Activity implements View.OnClickListener {
         new Thread(() -> {
             boolean ok = false;
             try {
-                JSONObject o = new JSONObject(js);
-                String f = o.getString("f"), id = o.getString("id");
-                if (!f.matches("[\\w./-]+") || f.contains("..")) throw new Exception();
-                String s = read(open(BASE + f).getInputStream(), Integer.MAX_VALUE).replace("\uFEFF", "");
-                if (M.parse(s) == null) throw new Exception();
-                String nm = p.getString("id:" + id, null);
-                if (nm == null) {
-                    nm = o.optString("name", id);
-                    if (d.contains(nm)) nm += " (repo)"; // do not overwrite a profile of the same name
-                }
-                d.edit().putString(nm, s).apply();
-                p.edit().putString("id:" + id, nm).apply();
-                ok = true;
+                ok = install(p, d, new JSONObject(js)) != null;
             } catch (Exception e) {
                 // reported below
             }

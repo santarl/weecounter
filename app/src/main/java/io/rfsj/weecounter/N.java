@@ -84,6 +84,34 @@ public class N extends Activity {
         p.edit().putString("ra", b.toString()).apply();
     }
 
+    // Adds a daily reminder for a profile (what the form does when it is saved); returns its id, -1 if it
+    // could not. The permission to show notifications is asked by the caller, which is an activity.
+    static int add(Context c, String pf, int h, int m, boolean keep) {
+        SharedPreferences p = c.getSharedPreferences("p", 0);
+        JSONArray a = all(p);
+        JSONObject o = new JSONObject();
+        try {
+            o.put("i", p.getInt("rn", 1)).put("p", pf).put("d", 127).put("h", h).put("m", m).put("k", keep);
+        } catch (Exception e) {
+            return -1;
+        }
+        a.put(o);
+        p.edit().putInt("rn", p.getInt("rn", 1) + 1).putString("rm", a.toString()).apply();
+        chan(c, o);
+        plan(c, o);
+        return o.optInt("i");
+    }
+
+    // does this profile have a reminder?
+    static boolean has(SharedPreferences p, String pf) {
+        JSONArray a = all(p);
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.optJSONObject(i);
+            if (o != null && pf.equals(o.optString("p"))) return true;
+        }
+        return false;
+    }
+
     // when the reminder is next due after now (ms), -1 if never
     static long next(JSONObject o) {
         Calendar now = Calendar.getInstance();
