@@ -46,7 +46,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
     TextView tm;    // the default theme
     EditText[] e = new EditText[M.D.length];
     CheckBox aw, dk, hp, wk, fa;
-    TextView df, dd, dx, vv, vz, dr, rl, ver, lnk, chk, res;
+    TextView df, dd, dx, vv, vz, dr, rl, ver, lnk, rep, chk, res;
     NotificationManager nm;
     int dm, vm;
 
@@ -81,6 +81,9 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         lnk = tv("github.com/" + REPO, th.ac, m / 4);
         lnk.setOnClickListener(this);
         l.addView(lnk);
+        rep = tv("REPORT A BUG OR REQUEST A FEATURE", th.ac, m);
+        rep.setOnClickListener(this);
+        l.addView(rep);
         chk = tv("CHECK FOR UPDATE", th.ac, m);
         chk.setOnClickListener(this);
         l.addView(chk);
@@ -249,6 +252,8 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
             startActivity(new Intent(this, P.class));
         } else if (x == lnk) {
             view("https://github.com/" + REPO);
+        } else if (x == rep) {
+            view("https://github.com/" + REPO + "/issues"); // a GitHub account is needed to write there
         } else if (x == chk) {
             check();
         } else if (x == rl) {

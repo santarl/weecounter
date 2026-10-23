@@ -570,10 +570,15 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         undo(); // clean up after a crash, then (re)apply
         dnd();
         sync();
+        // the first start of a new install (nothing written down yet) shows the help once; an install
+        // that is updated never does
+        boolean tour = !p.getBoolean("hs", false) && !p.contains("md");
+        if (!p.getBoolean("hs", false)) p.edit().putBoolean("hs", true).apply();
         live = true; // from here on the counts are written down at every redraw
         draw();
         f.removeCallbacks(this);
         run();
+        if (tour) f.post(() -> help(true));
     }
 
     @Override protected void onSaveInstanceState(Bundle o) {
@@ -644,6 +649,54 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     void setMode(boolean simple) {
         sm = simple;
         if (pin == null) p.edit().putBoolean("pm", !simple).apply(); // a plain window remembers it
+    }
+
+    // a heading and a few words, in the help sheet
+    void hrow(LinearLayout card, String head, String body) {
+        TextView h = new TextView(this);
+        h.setText(head);
+        h.setTextSize(16);
+        h.setTextColor(th.fg);
+        h.getPaint().setFakeBoldText(true);
+        h.setPadding(0, dp(14), 0, 0);
+        card.addView(h);
+        TextView b = new TextView(this);
+        b.setText(body);
+        b.setTextSize(14);
+        b.setTextColor(th.dim);
+        card.addView(b);
+    }
+
+    // The help: a short tour of what the app does, one heading and a few words each. It shows once on the
+    // first start of a new install (first), and is in the menu as Help.
+    void help(boolean first) {
+        LinearLayout card = sheet("Help", first ? "A short tour. You can open it again from the menu: Help." : null, true, false);
+        hrow(card, "Counting", "Tap anywhere on the counting screen to count. The -1 button takes one back.");
+        hrow(card, "Slides and views", "In a profile a slide moves on by itself when its count is done. Swipe up for the next slide and down for the "
+                + "previous one; swipe left or right for the other views of a slide (the Arabic, the transliteration, the meaning). "
+                + "Pinch the text to make it bigger or smaller. When it fills its box, the expand button at its corner shows it "
+                + "over the whole screen, to scroll and read.");
+        hrow(card, "Focus", "The focus button counts on a view of your choice with nothing else on the screen: blackout, dots or tally. "
+                + "Hold the knob and push it to start; a tap counts and a hold anywhere leaves it.");
+        hrow(card, "Adjust", "The adjust button, top right, sets the count and the target by typing, resets the slide, and has Undo. "
+                + "Hold a reset and push the red slider from the right to the left to do it; the whole profile resets only that way.");
+        hrow(card, "Menu", "Settings, Profiles, Edit layout (move and resize every part of the screen), Goto (jump to a slide), "
+                + "Theme, Reminders, Floating counter, and this Help.");
+        hrow(card, "Profiles", "Menu, Profiles, then BROWSE PROFILES downloads ready-made dhikr, such as the morning and evening adhkar. "
+                + "Profiles can also be imported, exported and shared.");
+        hrow(card, "Reminders", "Menu, Reminders: a reminder at a time you choose for a profile. A kept reminder stays in your "
+                + "notifications until you have counted the profile.");
+        hrow(card, "Floating counter", "Menu, Floating counter: a bubble over other apps (it asks for a permission once). Tap it to count, "
+                + "drag it anywhere, fling it at an edge to make it stick, drop it on the X to close it or on the i to see the current "
+                + "slide. It also comes up by itself when you minimize the app; Settings can turn that off.");
+        hrow(card, "Home screen shortcuts", "Profiles, then shortcut under a profile, puts it on your home screen, in its own window. "
+                + "The icon can be an emoji, not only a letter: try \uD83C\uDF04 for the morning adhkar and \uD83C\uDF06 for the evening ones.");
+        hrow(card, "A bug or an idea", "Settings has a link to the GitHub issues page: report a bug or ask for a feature there.");
+        TextView close = sb("Close", th.ac, v -> closeSheet());
+        close.setTextSize(18);
+        close.setGravity(Gravity.CENTER);
+        close.setPadding(dp(7), dp(18), dp(7), dp(6));
+        card.addView(close);
     }
 
     // The floating counter (Fb): a bubble over other apps that counts the plain counter, or the current
@@ -2124,6 +2177,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             startActivity(new Intent(this, N.class));
         });
         mrow(card, Fb.on ? "Floating counter: on" : "Floating counter", () -> bubble());
+        mrow(card, "Help", () -> help(false));
         TextView no = sb("cancel", th.dim, v -> closeSheet());
         no.setGravity(Gravity.CENTER);
         card.addView(no);
