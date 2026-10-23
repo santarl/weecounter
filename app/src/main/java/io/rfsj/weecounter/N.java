@@ -226,6 +226,10 @@ public class N extends Activity {
 
     // ---------------------------------------------------------------------------------- screen
 
+    @Override public void onBackPressed() {
+        if (!Sh.back(this)) super.onBackPressed(); // a dialog that is up closes first
+    }
+
     @Override protected void onCreate(Bundle b) {
         SharedPreferences q = getSharedPreferences("p", 0);
         th = Th.get(this, q, q.getString("pf", ""));
@@ -380,7 +384,7 @@ public class N extends Activity {
         String[] it = new String[n.size() + 1];
         it[0] = "Plain counter (simple mode)";
         for (int i = 0; i < n.size(); i++) it[i + 1] = n.get(i);
-        th.dlg(this).setTitle("Remind for").setItems(it, (dg, i) -> r.accept(i == 0 ? "" : n.get(i - 1))).show();
+        Sh.of(this, th).setTitle("Remind for").setItems(it, (dg, i) -> r.accept(i == 0 ? "" : n.get(i - 1))).show();
     }
 
     void paint(TextView t, boolean on) {
@@ -448,7 +452,7 @@ public class N extends Activity {
                 + "notification can be swiped away.", th.dim, 13));
         ScrollView sv = new ScrollView(this);
         sv.addView(l);
-        th.dlg(this).setTitle(old == null ? "New reminder" : "Edit reminder").setView(sv).setPositiveButton("Save", (dg, w) -> {
+        Sh.of(this, th).setTitle(old == null ? "New reminder" : "Edit reminder").setView(sv).setPositiveButton("Save", (dg, w) -> {
             JSONArray a = all(p);
             JSONObject o = old == null ? new JSONObject() : find(a, old.optInt("i"));
             if (o == null) return;

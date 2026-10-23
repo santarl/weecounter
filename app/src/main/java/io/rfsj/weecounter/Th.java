@@ -1,7 +1,6 @@
 package io.rfsj.weecounter;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
@@ -125,10 +124,6 @@ final class Th {
                 : android.R.style.Theme_DeviceDefault_NoActionBar;
     }
 
-    AlertDialog.Builder dlg(Activity a) {
-        return new AlertDialog.Builder(a, light ? android.R.style.Theme_DeviceDefault_Light_Dialog_Alert
-                : android.R.style.Theme_DeviceDefault_Dialog_Alert);
-    }
 
     // status and navigation bars in the colour of the screen, with dark icons on a light one
     void bars(Activity a) {

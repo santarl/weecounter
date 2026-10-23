@@ -48,6 +48,10 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
     String ex;              // profile being exported
     TextView br;            // the browse button, shows how many profiles have an update
 
+    @Override public void onBackPressed() {
+        if (!Sh.back(this)) super.onBackPressed(); // a dialog that is up closes first
+    }
+
     @Override protected void onCreate(Bundle b) {
         SharedPreferences q = getSharedPreferences("p", 0);
         th = Th.get(this, q, q.getString("pf", "")); // the theme of the profile this screen was opened from
@@ -196,7 +200,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
         l.setPadding(dp(20), dp(8), dp(20), 0);
         l.addView(h);
         l.addView(row);
-        th.dlg(this).setTitle("Shortcut icon").setView(l).setPositiveButton("Add", (d, w) -> {
+        Sh.of(this, th).setTitle("Shortcut icon").setView(l).setPositiveButton("Add", (d, w) -> {
             String s = e.getText().toString().trim();
             Intent i = new Intent(this, M.class).setAction(Intent.ACTION_VIEW)
                     .setData(Uri.parse("wee://profile/" + Uri.encode(k)));
@@ -257,7 +261,7 @@ public class P extends Activity implements View.OnClickListener, View.OnLongClic
                 fill();
                 break;
             case 2:
-                th.dlg(this).setTitle("Export " + k)
+                Sh.of(this, th).setTitle("Export " + k)
                         .setMessage("Share sends the profile as text (this app imports it again from shared text). "
                                 + "Save as file writes a .dhikr file.")
                         .setPositiveButton("Share", (d0, w0) -> share(k))

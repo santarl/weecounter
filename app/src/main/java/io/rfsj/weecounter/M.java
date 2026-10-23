@@ -231,7 +231,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     static void about(Activity a, Th th, String name, String tx) {
         String au = hd(tx, "author"), v = hd(tx, "version"), ds = hd(tx, "desc");
         String m = (au.isEmpty() ? "" : "By " + au) + (v.isEmpty() ? "" : (au.isEmpty() ? "" : "  -  ") + "version " + v);
-        th.dlg(a).setTitle(name).setMessage(m + (m.isEmpty() ? "" : "\n\n")
+        Sh.of(a, th).setTitle(name).setMessage(m + (m.isEmpty() ? "" : "\n\n")
                 + (ds.isEmpty() ? "No description" : ds)).setPositiveButton("OK", null).show();
     }
 
@@ -923,10 +923,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             collapse();
             return;
         }
-        if (fo != null && fo.getVisibility() == View.VISIBLE) {
-            closeSheet();
-            return;
-        }
+        if (Sh.back(this)) return; // a sheet or a dialog is up: Back closes it
         if (sp != null && sp.getVisibility() == View.VISIBLE) {
             sp.setVisibility(View.GONE);
             return;
@@ -1187,7 +1184,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // Swipes (dhikr only), like reels: up = next slide (counts as done), down = previous slide,
     // left / right = next / previous view. A recognised swipe never counts as a tap or a hold.
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
-        if (fo != null && fo.getVisibility() == View.VISIBLE) { // the focus sheet: only it gets touches, and this touch is no swipe
+        if (Sh.isUp(this)) { // a sheet or a dialog: only it gets touches, and this touch is no swipe
             if (e.getActionMasked() == MotionEvent.ACTION_DOWN) ign = true;
             return super.dispatchTouchEvent(e);
         }
@@ -1483,23 +1480,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     // The focus button: a sheet with the selector of the counting view and a slider; hold the knob
     // and push it to the end to go into focus (hold anywhere to leave it again).
-    // The sheet of the focus, menu and adjust buttons: a card of the theme on a dim screen. A tap outside
-    // it, or Back, closes it. Only it gets touches while it is up. gravity: where the card sits (the adjust
-    // sheet is at the top, so the keyboard does not cover it); scroll: for a card that may be taller than
-    // the screen. The title is the first child of the card.
-    LinearLayout sheet(String title, String sub, int gravity, boolean scroll) {
-        if (fo != null) f.removeView(fo);
-        fo = new FrameLayout(this);
-        fo.setBackgroundColor((th.bg & 0xFFFFFF) | 0xEE000000);
-        fo.setOnClickListener(v -> closeSheet()); // a tap outside the card
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setClickable(true);
-        card.setPadding(dp(20), dp(20), dp(20), dp(12));
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(Th.mix(th.bg, th.fg, .08f));
-        g.setCornerRadius(dp(20));
-        card.setBackground(g);
+    // The sheet of the focus, menu and adjust buttons: the card of Sh (the one every dialog of the app
+    // has) with a title, and a sub title if there is one. scroll: the card may be taller than the screen;
+    // fields: it has text fields. The title is the first child of the card.
+    LinearLayout sheet(String title, String sub, boolean scroll, boolean fields) {
+        if (fo != null) Sh.hide(this, fo);
+        Sh.Shell sh = Sh.shell(this, th, fields, scroll);
+        fo = sh.root;
+        LinearLayout card = sh.card;
         TextView t1 = new TextView(this);
         t1.setText(title);
         t1.setTextSize(22);
@@ -1513,29 +1501,16 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             t2.setPadding(0, dp(6), 0, dp(10));
             card.addView(t2);
         }
-        View root = card;
-        if (scroll) {
-            ScrollView sv = new ScrollView(this);
-            sv.addView(card);
-            root = sv;
-        }
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, gravity);
-        lp.setMargins(dp(24), gravity == Gravity.TOP ? dp(56) : 0, dp(24), 0);
-        fo.addView(root, lp);
-        f.addView(fo, new FrameLayout.LayoutParams(-1, -1));
         return card;
     }
 
     void closeSheet() {
-        if (fo == null) return;
-        android.view.inputmethod.InputMethodManager im = getSystemService(android.view.inputmethod.InputMethodManager.class);
-        if (im != null) im.hideSoftInputFromWindow(fo.getWindowToken(), 0);
-        fo.setVisibility(View.GONE);
+        if (fo != null) Sh.hide(this, fo);
     }
 
     void focusSheet() {
         LinearLayout card = sheet("focus", "Counts on the view you pick, nothing else on the screen. Hold anywhere to leave it.",
-                Gravity.CENTER, false);
+                false, false);
         final TextView vb = sb("view: " + NM[mode], th.ac, null);
         vb.setTextSize(18);
         vb.setOnClickListener(v -> {
@@ -1557,40 +1532,58 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     }
 
     // "hold and push" slider: drag the knob from the left end to the right end to run go
+    // A slider with a knob that has to be held and pushed all the way: left to right for the focus, and
+    // (rtl) right to left in red for a reset, so the two are never mixed up. go runs when it is all the way.
     static class Sl extends View {
         final M m;
         final Runnable go;
+        final String label;
+        final boolean rtl;
+        final int col;
         final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        float x; // knob position, 0 to 1
+        float x; // how far the knob is pushed from where it starts, 0 to 1
         boolean drag;
 
         Sl(M m, Runnable go) {
+            this(m, "hold the knob and push to focus", false, m.th.ac, go);
+        }
+
+        Sl(M m, String label, boolean rtl, int col, Runnable go) {
             super(m);
             this.m = m;
             this.go = go;
+            this.label = label;
+            this.rtl = rtl;
+            this.col = col;
+        }
+
+        // where the knob is, 0 to 1 from the left
+        float vx() {
+            return rtl ? 1 - x : x;
         }
 
         @Override protected void onDraw(Canvas c) {
-            float h = getHeight(), r = h / 2 - m.dp(6), w = getWidth() - 2 * r - m.dp(12), cx = r + m.dp(6) + x * w, cy = h / 2;
+            float h = getHeight(), r = h / 2 - m.dp(6), w = getWidth() - 2 * r - m.dp(12), cx = r + m.dp(6) + vx() * w, cy = h / 2;
             p.setStyle(Paint.Style.FILL);
             p.setColor(Th.mix(m.th.bg, m.th.fg, .15f));
             c.drawRoundRect(m.dp(2), cy - r - m.dp(4), getWidth() - m.dp(2), cy + r + m.dp(4), h, h, p);
-            p.setColor((m.th.ac & 0xFFFFFF) | 0x66000000);
-            c.drawRoundRect(m.dp(2), cy - r - m.dp(4), cx + r + m.dp(4), cy + r + m.dp(4), h, h, p);
+            p.setColor((col & 0xFFFFFF) | 0x66000000);
+            if (rtl) c.drawRoundRect(cx - r - m.dp(4), cy - r - m.dp(4), getWidth() - m.dp(2), cy + r + m.dp(4), h, h, p);
+            else c.drawRoundRect(m.dp(2), cy - r - m.dp(4), cx + r + m.dp(4), cy + r + m.dp(4), h, h, p);
             p.setColor(m.th.dim);
             p.setAlpha((int) (255 * (1 - x)));
             p.setTextAlign(Paint.Align.CENTER);
             p.setTextSize(15 * m.spx);
-            c.drawText("hold the knob and push to focus", getWidth() / 2f + r, cy + m.dp(5), p);
-            p.setColor(m.th.ac);
+            c.drawText(label, getWidth() / 2f + (rtl ? -r : r), cy + m.dp(5), p);
+            p.setColor(col);
             c.drawCircle(cx, cy, r, p);
             p.setColor(m.th.bg);
             p.setTextSize(22 * m.spx);
-            c.drawText("\u203A", cx, cy + m.dp(7), p);
+            c.drawText(rtl ? "\u2039" : "\u203A", cx, cy + m.dp(7), p);
         }
 
         @Override public boolean onTouchEvent(MotionEvent e) {
-            float r = getHeight() / 2f - m.dp(6), w = getWidth() - 2 * r - m.dp(12), cx = r + m.dp(6) + x * w;
+            float r = getHeight() / 2f - m.dp(6), w = getWidth() - 2 * r - m.dp(12), cx = r + m.dp(6) + vx() * w;
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     drag = Math.abs(e.getX() - cx) < r * 1.7f; // only the knob
@@ -1598,7 +1591,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                     return drag;
                 case MotionEvent.ACTION_MOVE:
                     if (!drag) return false;
-                    x = Math.max(0, Math.min(1, (e.getX() - r - m.dp(6)) / w));
+                    float at = Math.max(0, Math.min(1, (e.getX() - r - m.dp(6)) / w)); // from the left
+                    x = rtl ? 1 - at : at;
                     invalidate();
                     if (x >= .97f) { // all the way
                         drag = false;
@@ -1746,7 +1740,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         q.setHintTextColor(th.dim);
         q.setTextColor(th.fg);
         final ListView lv = new ListView(this);
-        final ArrayAdapter<String> ad = new ArrayAdapter<>(this, android.R.layout.select_dialog_item);
+        final ArrayAdapter<String> ad = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1) {
+            @Override public View getView(int at, View old, android.view.ViewGroup par) { // the colours of the theme
+                TextView t = (TextView) super.getView(at, old, par);
+                t.setTextColor(th.fg);
+                t.setTextSize(15);
+                return t;
+            }
+        };
         final ArrayList<Integer> ix = new ArrayList<>(); // the slides shown, best first
         final Runnable fl = () -> {
             String qs = nz(q.getText().toString()).trim();
@@ -1794,7 +1795,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         h.setTextSize(18);
         h.setTextColor(th.fg);
         h.setPadding(dp(24), dp(20), dp(24), dp(8));
-        final AlertDialog d = th.dlg(this).setCustomTitle(h).setView(l)
+        final Sh d = Sh.of(this, th).setCustomTitle(h).setView(l)
                 .setNeutralButton("Advanced", (dg, w) -> repeats()).create();
         lv.setOnItemClickListener((pa, pv, pos, pid) -> {
             d.dismiss();
@@ -1873,7 +1874,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         root.addView(all);
         root.addView(ck);
         root.addView(sc, new LinearLayout.LayoutParams(-1, getResources().getDisplayMetrics().heightPixels * 2 / 5));
-        th.dlg(this).setTitle("Repeats").setView(root)
+        Sh.of(this, th).setTitle("Repeats").setView(root)
                 .setPositiveButton("Save", (dg, w) -> {
                     String res;
                     if (ck.isChecked()) {
@@ -1970,7 +1971,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         final boolean prof = pr != null;
         final int k = prof ? pr.c.length : 0;
         final ArrayList<int[]> ust = new ArrayList<>();
-        final LinearLayout card = sheet("adjust", null, Gravity.TOP, true);
+        final LinearLayout card = sheet("adjust", null, true, true);
         final TextView tt = (TextView) card.getChildAt(0); // the title: the slide
         final EditText ec = new EditText(this), et = new EditText(this);
         for (EditText e : new EditText[]{ec, et}) {
@@ -1987,15 +1988,25 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         final TextView rc = dtx(prof ? "Reset this slide" : "Reset to 0", th.fg);
         final TextView rp = dtx("Hold to reset the whole profile", th.warn);
         for (TextView v : new TextView[]{ud, rc, rp}) v.setPadding(0, dp(14), 0, dp(14));
+        // the red sliders of the two resets: not shown until a reset is held (see below)
+        final Runnable[] act = new Runnable[2];
+        final Sl slSlide = new Sl(this, prof ? "push to reset this slide" : "push to reset to 0", true, th.bad, () -> act[0].run());
+        final Sl slProf = new Sl(this, "push to reset the whole profile", true, th.bad, () -> act[1].run());
+        slSlide.setVisibility(View.GONE);
+        slProf.setVisibility(View.GONE);
         final LinearLayout fl = new LinearLayout(this);
         fl.setOrientation(LinearLayout.VERTICAL);
         fl.setPadding(0, dp(8), 0, 0);
         fl.addView(drow(dtx("Count", th.fg), ec));
         fl.addView(drow(dtx(prof ? "Target of this slide" : "Goal (empty = off)", th.fg), et));
         fl.addView(rc);
+        fl.addView(slSlide, new LinearLayout.LayoutParams(-1, dp(64)));
         card.addView(fl);
         card.addView(ud);
-        if (prof) card.addView(rp);
+        if (prof) {
+            card.addView(rp);
+            card.addView(slProf, new LinearLayout.LayoutParams(-1, dp(64)));
+        }
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.CENTER);
         final TextView sv = sb("Save", th.ac, null), cb = sb("Close", th.dim, v -> closeSheet());
@@ -2010,6 +2021,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         // the two fields. This shows the current state: the title, the two fields, whether there is
         // something to undo.
         final Runnable rf = () -> {
+            slSlide.setVisibility(View.GONE);
+            slProf.setVisibility(View.GONE);
             boolean fin = prof && cur >= k;
             int s = prof ? Math.min(cur, k - 1) : 0;
             tt.setText(!prof ? "Counter" : fin ? "Profile completed" : (s + 1) + ". " + pr.ti[s]);
@@ -2021,7 +2034,9 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             ud.setEnabled(!ust.isEmpty());
             ud.setTextColor(ust.isEmpty() ? th.dim : th.ac);
         };
-        rc.setOnClickListener(v -> {
+        // The resets. A tap on the one of the slide acts at once (there is Undo); a hold on either one shows
+        // its red slider, to be pushed from the right to the left, so a reset is never an accident.
+        act[0] = () -> {
             ust.add(counts());
             if (prof) cn[Math.min(cur, k - 1)] = 0; // stays on the slide
             else {
@@ -2032,9 +2047,8 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             z(vr);
             draw();
             rf.run();
-        });
-        rp.setOnClickListener(v -> Toast.makeText(this, "Hold to reset the whole profile", Toast.LENGTH_SHORT).show());
-        rp.setOnLongClickListener(v -> {
+        };
+        act[1] = () -> {
             ust.add(counts());
             cur = 0;
             Arrays.fill(cn, 0);
@@ -2042,6 +2056,19 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             z(vr);
             draw();
             rf.run();
+        };
+        rc.setOnClickListener(v -> act[0].run());
+        rc.setOnLongClickListener(v -> {
+            slProf.setVisibility(View.GONE);
+            slSlide.setVisibility(View.VISIBLE);
+            z(vh);
+            return true;
+        });
+        rp.setOnClickListener(v -> Toast.makeText(this, "Hold to reset the whole profile", Toast.LENGTH_SHORT).show());
+        rp.setOnLongClickListener(v -> {
+            slSlide.setVisibility(View.GONE);
+            slProf.setVisibility(View.VISIBLE);
+            z(vh);
             return true;
         });
         ud.setOnClickListener(v -> {
@@ -2077,7 +2104,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     // top-left menu
     void menu(View anchor) {
-        LinearLayout card = sheet("menu", null, Gravity.CENTER, true);
+        LinearLayout card = sheet("menu", null, true, false);
         if (!pf.isEmpty()) mrow(card, sm ? "Profile mode: " + pf : "Simple mode", () -> toggleMode());
         mrow(card, "Settings", () -> {
             p.edit().putString("pf", pf).apply(); // the screens show this window's profile and may change it

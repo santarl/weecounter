@@ -50,6 +50,10 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
     NotificationManager nm;
     int dm, vm;
 
+    @Override public void onBackPressed() {
+        if (!Sh.back(this)) super.onBackPressed(); // a dialog that is up closes first
+    }
+
     @Override protected void onCreate(Bundle b) {
         SharedPreferences q = getSharedPreferences("p", 0);
         dflt = b != null && b.getBoolean("d");
@@ -328,7 +332,7 @@ public class S extends Activity implements View.OnClickListener, View.OnLongClic
         res.setText(r[0]);
         if (r[1] == null) return;
         final String u = r[2];
-        th.dlg(this).setTitle("Update available").setMessage(r[1])
+        Sh.of(this, th).setTitle("Update available").setMessage(r[1])
                 .setPositiveButton(test() ? "Open" : "Download", (d, w) -> view(u))
                 .setNegativeButton("Later", null).show();
     }
