@@ -101,7 +101,8 @@ final class Sh implements DialogInterface {
     static boolean back(Activity a) {
         View v = top(a);
         if (v == null) return false;
-        v.performClick();
+        if (v instanceof Tr) ((Tr) v).close(); // the guided tour
+        else v.performClick();
         return true;
     }
 

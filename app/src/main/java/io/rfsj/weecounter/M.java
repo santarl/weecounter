@@ -651,64 +651,30 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         if (pin == null) p.edit().putBoolean("pm", !simple).apply(); // a plain window remembers it
     }
 
-    // a heading and a few words, in the help sheet
-    void hrow(LinearLayout card, String head, String body) {
-        TextView h = new TextView(this);
-        h.setText(head);
-        h.setTextSize(16);
-        h.setTextColor(th.fg);
-        h.getPaint().setFakeBoldText(true);
-        h.setPadding(0, dp(14), 0, 0);
-        card.addView(h);
-        TextView b = new TextView(this);
-        b.setText(body);
-        b.setTextSize(14);
-        b.setTextColor(th.dim);
-        card.addView(b);
-    }
-
-    // The help: a short tour of what the app does, one heading and a few words each. It shows once on the
-    // first start of a new install (first), and is in the menu as Help.
+    // The help is a guided tour (Tr): the real buttons are lit one after the other with a sentence each,
+    // a finger shows the swipes, and the last step leads to the quick start. It starts by itself on the
+    // first start of a new install (first) and is in the menu as Help.
     void help(boolean first) {
-        LinearLayout card = sheet("Help", first ? "A short tour. You can open it again from the menu: Help." : null, true, false);
-        hrow(card, "Quick start", "The button at the end of this tour gets the morning and evening adhkar ready: it downloads them and "
-                + "sets a reminder for each. You can run it again from here whenever you like.");
-        hrow(card, "Counting", "Tap anywhere on the counting screen to count. The -1 button takes one back.");
-        hrow(card, "Slides and views", "In a profile a slide moves on by itself when its count is done. Swipe up for the next slide and down for the "
-                + "previous one; swipe left or right for the other views of a slide (the Arabic, the transliteration, the meaning). "
-                + "Pinch the text to make it bigger or smaller. When it fills its box, the expand button at its corner shows it "
-                + "over the whole screen, to scroll and read.");
-        hrow(card, "Focus", "The focus button counts on a view of your choice with nothing else on the screen: blackout, dots or tally. "
-                + "Hold the knob and push it to start; a tap counts and a hold anywhere leaves it.");
-        hrow(card, "Adjust", "The adjust button, top right, sets the count and the target by typing, resets the slide, and has Undo. "
-                + "Hold a reset and push the red slider from the right to the left to do it; the whole profile resets only that way.");
-        hrow(card, "Menu", "Settings, Profiles, Edit layout (move and resize every part of the screen), Goto (jump to a slide), "
-                + "Theme, Reminders, Floating counter, and this Help.");
-        hrow(card, "Profiles", "Menu, Profiles, then BROWSE PROFILES downloads ready-made dhikr, such as the morning and evening adhkar. "
-                + "Profiles can also be imported, exported and shared.");
-        hrow(card, "Reminders", "Menu, Reminders: a reminder at a time you choose for a profile. A kept reminder stays in your "
-                + "notifications until you have counted the profile.");
-        hrow(card, "Floating counter", "Menu, Floating counter: a bubble over other apps (it asks for a permission once). Tap it to count, "
-                + "drag it anywhere, fling it at an edge to make it stick, drop it on the X to close it or on the i to see the current "
-                + "slide. It also comes up by itself when you minimize the app; Settings can turn that off.");
-        hrow(card, "Home screen shortcuts", "Profiles, then shortcut under a profile, puts it on your home screen, in its own window. "
-                + "The icon can be an emoji, not only a letter: try \uD83C\uDF04 for the morning adhkar and \uD83C\uDF06 for the evening ones.");
-        hrow(card, "A bug or an idea", "Settings has a link to the GitHub issues page: report a bug or ask for a feature there.");
-        // the end: on the first start Skip or Next (to the quick start); later Close or Quick start
-        LinearLayout bar = new LinearLayout(this);
-        bar.setPadding(0, dp(12), 0, 0);
-        TextView no = sb(first ? "Skip" : "Close", th.dim, v -> closeSheet());
-        TextView qs = sb(first ? "Next" : "Quick start", th.ac, v -> {
-            closeSheet();
-            quickStart();
-        });
-        for (TextView b : new TextView[]{no, qs}) {
-            b.setTextSize(18);
-            b.setGravity(Gravity.CENTER);
-            b.setPadding(dp(7), dp(12), dp(7), dp(6));
-            bar.addView(b, new LinearLayout.LayoutParams(0, -2, 1f));
-        }
-        card.addView(bar);
+        ArrayList<Tr.Step> s = new ArrayList<>();
+        s.add(new Tr.Step(first ? "Welcome" : "Counting", "Tap anywhere on the screen to count. The -1 button takes one back.", Tr.TAP, bot, dn));
+        s.add(new Tr.Step("Adjust", "Type in a count or a goal, reset, and undo. A reset needs a hold and a push of the red slider, "
+                + "so it never happens by accident.", Tr.NONE, rs));
+        s.add(new Tr.Step("Focus", "Counts with nothing else on the screen: blackout, dots or tally. Hold the knob and push it "
+                + "to start; hold anywhere to leave.", Tr.NONE, vw));
+        s.add(new Tr.Step("Menu", "Settings, Profiles, Edit layout, Goto, Theme, Reminders, the Floating counter, "
+                + "and this tour: Help.", Tr.NONE, se));
+        s.add(new Tr.Step("Slides", "A profile, like the morning adhkar, is a row of slides. Swipe up for the next slide "
+                + "and down for the one before.", Tr.UP));
+        s.add(new Tr.Step("Views", "Swipe left or right for the other views of a slide: the Arabic, the transliteration, "
+                + "the meaning. Pinch to make the text bigger or smaller.", Tr.LEFT));
+        s.add(new Tr.Step("Floating counter", "Menu, Floating counter: a bubble over other apps. Tap it to count, drag it "
+                + "anywhere, fling it at an edge to make it stick, drop it on the X to close it. It also comes up when you "
+                + "minimize the app.", Tr.NONE));
+        s.add(new Tr.Step("Home screen", "Profiles, then shortcut: a profile on your home screen, in its own window. "
+                + "Use an emoji as its icon: \uD83C\uDF04 for the morning adhkar, \uD83C\uDF06 for the evening.", Tr.NONE));
+        s.add(new Tr.Step("Ready?", "Quick start gets the morning and evening adhkar and their reminders ready. "
+                + "A bug or an idea? Settings has a link to the issues page.", Tr.NONE));
+        new Tr(this, th, s, "Quick start", () -> quickStart()).show();
     }
 
     // a row of the quick start: a label and a time, hours and minutes
