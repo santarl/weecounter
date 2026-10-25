@@ -17,22 +17,48 @@ import java.util.ArrayList;
 
 // A guided tour: the screen goes dim, one part of it (or two) is lit, and a small card says in a
 // sentence or two what it is. Steps with no part to light show a finger doing the gesture instead (a
-// swipe or a tap). Next, Back and Skip are on the card; Back (the key) ends the tour. While it is up
-// nothing underneath gets a touch (it is marked like a sheet, see Sh.isUp and Sh.back).
+// swipe or a tap). Next, Back and Skip are on the card; Back (the key) ends the tour.
+// A step can ask the user to do the thing it is about (need): then the touches go through to the screen
+// underneath, so the tap really counts, and the tour goes on by itself a moment after the thing was done
+// (did) or the sheet it opens was closed. Next always works. On the other steps nothing underneath gets a
+// touch. The tour is marked like a sheet (see Sh.isUp and Sh.back).
 final class Tr extends FrameLayout {
     static final int NONE = 0, UP = 1, LEFT = 2, TAP = 3; // what the finger shows
 
-    // one step: a title, a sentence or two, the finger, and the views to light (none: no part)
+    // One step: a title and a sentence or two; demo: the finger; need: what the user is asked to do (null: only
+    // Next): "tap" (count), "minus" (take one back), "sheet" (open a sheet and close it), "advance" (the slide
+    // moves on), "swipe" (to another slide), "view" (to another view); enter: runs when the step begins;
+    // lit: the views to light (none: no part).
     static class Step {
         final String title, text;
-        final int demo;
-        final View[] targets;
+        int demo = NONE;
+        String need;
+        Runnable enter;
+        View[] lit = new View[0];
 
-        Step(String title, String text, int demo, View... targets) {
+        Step(String title, String text) {
             this.title = title;
             this.text = text;
-            this.demo = demo;
-            this.targets = targets;
+        }
+
+        Step demo(int d) {
+            demo = d;
+            return this;
+        }
+
+        Step need(String n) {
+            need = n;
+            return this;
+        }
+
+        Step enter(Runnable r) {
+            enter = r;
+            return this;
+        }
+
+        Step lit(View... v) {
+            lit = v;
+            return this;
         }
     }
 
@@ -41,6 +67,7 @@ final class Tr extends FrameLayout {
     final ArrayList<Step> steps;
     final String lastLabel; // the button of the last step
     final Runnable lastAct; // what it does, after the tour has closed (null: only close)
+    final Runnable onClose; // runs when the tour has closed, however it was closed
     final float u;
     final Paint dim = new Paint(Paint.ANTI_ALIAS_FLAG), ring = new Paint(Paint.ANTI_ALIAS_FLAG),
             fing = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -52,18 +79,20 @@ final class Tr extends FrameLayout {
     float t; // the finger's progress, 0 to 1, over and over
     ValueAnimator anim;
     boolean closed;
+    boolean seen; // a sheet has been up since this step began (a "sheet" step waits for it to close)
+    Runnable poll; // while a "sheet" step waits: looks every so often whether the sheet has been closed
 
-    Tr(Activity a, Th th, ArrayList<Step> steps, String lastLabel, Runnable lastAct) {
+    Tr(Activity a, Th th, ArrayList<Step> steps, String lastLabel, Runnable lastAct, Runnable onClose) {
         super(a);
         this.a = a;
         this.th = th;
         this.steps = steps;
         this.lastLabel = lastLabel;
         this.lastAct = lastAct;
+        this.onClose = onClose;
         u = a.getResources().getDisplayMetrics().density;
         setContentDescription(Sh.MARK);
         setWillNotDraw(false);
-        setClickable(true); // nothing underneath gets a touch
         dim.setColor((th.bg & 0xFFFFFF) | 0xDD000000);
         ring.setStyle(Paint.Style.STROKE);
         ring.setStrokeWidth(2.5f * u);
@@ -102,6 +131,20 @@ final class Tr extends FrameLayout {
         lp.setMargins(Sh.dp(a, 24), Sh.dp(a, 56), Sh.dp(a, 24), Sh.dp(a, 56));
         addView(card, lp);
 
+        poll = new Runnable() {
+            @Override public void run() {
+                if (closed || !"sheet".equals(steps.get(at).need)) return;
+                boolean mine = Sh.top(a) == Tr.this;
+                if (!mine) {
+                    seen = true;
+                } else if (seen) {
+                    seen = false;
+                    go(at + 1);
+                    return;
+                }
+                postDelayed(this, 250);
+            }
+        };
         no.setOnClickListener(v -> close());
         back.setOnClickListener(v -> {
             if (at > 0) go(at - 1);
@@ -132,9 +175,17 @@ final class Tr extends FrameLayout {
     // the step i: what is lit, where the card goes (on the other half of the screen), the finger
     void go(int i) {
         if (closed) return;
+        if (i >= steps.size()) { // nothing after the last step
+            close();
+            return;
+        }
         at = i;
         Step s = steps.get(i);
         boolean last = i == steps.size() - 1;
+        removeCallbacks(poll);
+        seen = false;
+        setClickable(s.need == null); // a step that asks for something lets the touches through
+        if (s.enter != null) s.enter.run();
         tt.setText(s.title);
         tx.setText(s.text);
         pg.setText((i + 1) + " of " + steps.size());
@@ -145,7 +196,7 @@ final class Tr extends FrameLayout {
         int[] me = new int[2], tp = new int[2];
         getLocationInWindow(me);
         float sy = 0;
-        for (View v : s.targets) {
+        for (View v : s.lit) {
             if (v.getVisibility() != View.VISIBLE || v.getWidth() == 0) continue;
             v.getLocationInWindow(tp);
             float pad = 4 * u;
@@ -161,6 +212,7 @@ final class Tr extends FrameLayout {
         if (anim != null) anim.cancel();
         anim = null;
         t = 0;
+        if ("sheet".equals(s.need)) postDelayed(poll, 250);
         if (s.demo != NONE) {
             anim = ValueAnimator.ofFloat(0f, 1f);
             anim.setDuration(1300);
@@ -174,14 +226,35 @@ final class Tr extends FrameLayout {
         invalidate();
     }
 
+    // the user did something (see Step.need): if the step is waiting for it, the next one comes in a moment
+    void did(String ev) {
+        if (closed || !ev.equals(steps.get(at).need)) return;
+        final int me = at;
+        postDelayed(() -> {
+            if (!closed && at == me) go(me + 1);
+        }, 700);
+    }
+
+    // do the touches go through to the screen underneath?
+    boolean pass() {
+        return !closed && steps.get(at).need != null;
+    }
+
+    static boolean passing(Activity a) {
+        View v = Sh.top(a);
+        return v instanceof Tr && ((Tr) v).pass();
+    }
+
     void close() {
         if (closed) return;
         closed = true;
+        removeCallbacks(poll);
         if (anim != null) anim.cancel();
         setVisibility(View.GONE);
         post(() -> {
             if (getParent() instanceof ViewGroup) ((ViewGroup) getParent()).removeView(this);
         });
+        if (onClose != null) onClose.run();
     }
 
     @Override protected void onDraw(Canvas c) {

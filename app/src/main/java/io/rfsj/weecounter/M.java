@@ -113,7 +113,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     int cur;         // dhikr: current slide (== slide count: completed)
     boolean edit;    // layout editor on
     RectF[] er = new RectF[9]; // rectangles (px) of the editable elements, see def()
-    View[] ev;       // their views: menu, adjust, -1, view, dhikr text, counter, footer, DND warning, title
+    View[] ev;       // their views: menu, reset, -1, view, dhikr text, counter, footer, DND warning, title
     Ed ed;           // the editor overlay
     int vi;          // chosen view of the slides (clamped per slide)
     long rt;         // time of the last tap on the completed screen
@@ -138,6 +138,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             takeOver();
     };
     float zs;        // text scale while pinching
+    Tr tour;         // the guided tour, while it is up
+    boolean tsm, tSample; // what the window was before the tour (simple mode), and the tour is on its sample profile
+    String tpf = ""; // the profile it was on
+    int tn;          // the plain counter before the tour
     boolean ign;     // this touch is no swipe: it began on the focus sheet or the theme strip, or in focus mode
     boolean bz;      // the finger went down near the bottom edge, where an upward swipe is the system's home gesture
     float zmx = 1;   // the largest scale at which the text still fits its rectangle (the limit of a pinch)
@@ -448,7 +452,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
         se = b("menu");
         se.setOnClickListener(this);
-        rs = b("adjust");
+        rs = b("reset");
         rs.setOnClickListener(this);      // opens the adjust dialog (a hold does too)
         rs.setOnLongClickListener(this);
         dn = b("-1");
@@ -535,6 +539,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
 
     @Override protected void onResume() {
         super.onResume();
+        if (tour == null && p.getBoolean("tsx", false)) { // the sample profile of a tour that was cut short
+            getSharedPreferences("d", 0).edit().remove(SAMPLE).apply();
+            p.edit().remove("cn:" + SAMPLE).remove("cu:" + SAMPLE).remove("in:" + SAMPLE).remove("rp:" + SAMPLE).remove("tsx").apply();
+        }
         if (chain) { // back from the settings or profile screens opened here: they may have changed the profile
             chain = false;
             String np = p.getString("pf", "");
@@ -651,49 +659,127 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         if (pin == null) p.edit().putBoolean("pm", !simple).apply(); // a plain window remembers it
     }
 
-    // The help is a guided tour (Tr): the real buttons are lit one after the other with a sentence each,
-    // a finger shows the swipes, and the last step leads to the quick start. It starts by itself on the
-    // first start of a new install (first) and is in the menu as Help.
-    void help(boolean first) {
-        ArrayList<Tr.Step> s = new ArrayList<>();
-        s.add(new Tr.Step(first ? "Welcome" : "Counting", "Tap anywhere on the screen to count. The -1 button takes one back.", Tr.TAP, bot, dn));
-        s.add(new Tr.Step("Adjust", "Type in a count or a goal, reset, and undo. A reset needs a hold and a push of the red slider, "
-                + "so it never happens by accident.", Tr.NONE, rs));
-        s.add(new Tr.Step("Focus", "Counts with nothing else on the screen: blackout, dots or tally. Hold the knob and push it "
-                + "to start; hold anywhere to leave.", Tr.NONE, vw));
-        s.add(new Tr.Step("Menu", "Settings, Profiles, Edit layout, Goto, Theme, Reminders, the Floating counter, "
-                + "and this tour: Help.", Tr.NONE, se));
-        s.add(new Tr.Step("Slides", "A profile, like the morning adhkar, is a row of slides. Swipe up for the next slide "
-                + "and down for the one before.", Tr.UP));
-        s.add(new Tr.Step("Views", "Swipe left or right for the other views of a slide: the Arabic, the transliteration, "
-                + "the meaning. Pinch to make the text bigger or smaller.", Tr.LEFT));
-        s.add(new Tr.Step("Floating counter", "Menu, Floating counter: a bubble over other apps. Tap it to count, drag it "
-                + "anywhere, fling it at an edge to make it stick, drop it on the X to close it. It also comes up when you "
-                + "minimize the app.", Tr.NONE));
-        s.add(new Tr.Step("Home screen", "Profiles, then shortcut: a profile on your home screen, in its own window. "
-                + "Use an emoji as its icon: \uD83C\uDF04 for the morning adhkar, \uD83C\uDF06 for the evening.", Tr.NONE));
-        s.add(new Tr.Step("Ready?", "Quick start gets the morning and evening adhkar and their reminders ready. "
-                + "A bug or an idea? Settings has a link to the issues page.", Tr.NONE));
-        new Tr(this, th, s, "Quick start", () -> quickStart()).show();
+    // the small profile of the tour: three slides of three, with three views each. It exists only while the
+    // tour is on a page that needs a profile (see tourSample and tourEnd).
+    static final String SAMPLE = "Tour sample";
+    static final String SAMPLE_TX = "@id tour-sample\n@version 1\n"
+            + "---3\n# Subhanallah\n[70]\u0633\u064F\u0628\u0652\u062D\u064E\u0627\u0646\u064E \u0671\u0644\u0644\u064E\u0651\u0670\u0647\u0650 | [70]Subhanallah | [70]Glory be to Allah\n"
+            + "---3\n# Alhamdulillah\n[70]\u0671\u0644\u0652\u062D\u064E\u0645\u0652\u062F\u064F \u0644\u0650\u0644\u064E\u0651\u0670\u0647\u0650 | [70]Alhamdulillah | [70]All praise is for Allah\n"
+            + "---3\n# Allahu akbar\n[70]\u0671\u0644\u0644\u064E\u0651\u0670\u0647\u064F \u0623\u064E\u0643\u0652\u0628\u064E\u0631\u064F | [70]Allahu akbar | [70]Allah is the Greatest\n";
+
+    // the user did something the tour may be waiting for (see Tr.Step)
+    void tourDo(String what) {
+        if (tour != null) tour.did(what);
     }
 
-    // a row of the quick start: a label and a time, hours and minutes
-    LinearLayout trow(String label, EditText h, EditText m) {
+    // Into the sample profile, from the plain counter of the first pages of the tour.
+    void tourSample() {
+        if (tSample) return;
+        tSample = true;
+        keep();
+        getSharedPreferences("d", 0).edit().putString(SAMPLE, SAMPLE_TX).apply();
+        p.edit().remove("cn:" + SAMPLE).remove("cu:" + SAMPLE).putBoolean("tsx", true).apply();
+        pf = SAMPLE;
+        sm = false; // not through setMode: this is no choice of the window to remember
+        load();
+        skin();
+        draw();
+    }
+
+    // The tour is over, however it ended: the sample profile goes and the window is as it was, on the same
+    // profile or plain counter, and the plain counter has the count it had before.
+    void tourEnd() {
+        tour = null;
+        pf = tpf;
+        setMode(tsm);
+        load();
+        getSharedPreferences("d", 0).edit().remove(SAMPLE).apply();
+        p.edit().remove("cn:" + SAMPLE).remove("cu:" + SAMPLE).remove("in:" + SAMPLE).remove("rp:" + SAMPLE)
+                .remove("tsx").putInt("n", tn).apply();
+        if (pr == null) n = tn;
+        cv = false;
+        skin();
+        draw();
+    }
+
+    // The help is a guided tour (Tr): the real buttons are lit one after the other with a sentence each,
+    // the page asks you to do what it is about (the tap really counts) and goes on by itself when you have,
+    // or when you press Next. First the plain counter, then profiles, on a small sample profile. It starts by
+    // itself on the first start of a new install (first) and is in the menu as Help. The last page leads to
+    // the quick start.
+    void help(boolean first) {
+        if (edit) return;
+        if (tour != null) tour.close();
+        tpf = pf;
+        tsm = sm;
+        tSample = false;
+        if (!sm) { // the tour begins on the plain counter, whatever the window was on
+            keep();
+            setMode(true);
+            load();
+            if (pr == null) n = p.getInt("n", 0);
+            skin();
+            draw();
+        }
+        tn = n;
+        ArrayList<Tr.Step> s = new ArrayList<>();
+        s.add(new Tr.Step(first ? "Welcome" : "The tour", "Do what each page asks, or just press Next. First the simple counter, "
+                + "then profiles."));
+        s.add(new Tr.Step("Counting", "Tap anywhere on the screen to count. Try it.").demo(Tr.TAP).need("tap").lit(bot));
+        s.add(new Tr.Step("Take one back", "Counted one too many? Tap -1.").need("minus").lit(dn));
+        s.add(new Tr.Step("Reset", "Tap reset to open a sheet: type in a count or a goal, reset, or undo. A reset needs a hold and "
+                + "a push of the red slider, so it never happens by accident. Close it to go on.").need("sheet").lit(rs));
+        s.add(new Tr.Step("Focus", "Tap focus. It counts with nothing else on the screen: blackout, dots or tally. Hold the knob "
+                + "and push it to start, hold anywhere to leave. Or just close it to go on.").need("sheet").lit(vw));
+        s.add(new Tr.Step("Menu", "Tap menu: Settings, Profiles, Edit layout, Goto, Theme, Reminders, the Floating counter, "
+                + "and this tour: Help. Close it to go on.").need("sheet").lit(se).enter(() -> {
+            if (cv) { // the focus sheet may have been used: back to the counting screen
+                cv = false;
+                draw();
+            }
+        }));
+        s.add(new Tr.Step("Profiles", "That was the simple counter. A profile is a dhikr made of slides, like the morning and "
+                + "evening adhkar: each slide counts to its own target, and the next one comes by itself. Next shows a small sample."));
+        s.add(new Tr.Step("A slide", "This slide counts to 3. Tap three times: the next slide comes by itself.").demo(Tr.TAP)
+                .need("advance").enter(() -> tourSample()));
+        s.add(new Tr.Step("Slides", "Swipe up for the next slide and down for the one before.").demo(Tr.UP).need("swipe"));
+        s.add(new Tr.Step("Views", "Swipe left or right for the other views of a slide: the Arabic, the transliteration, the "
+                + "meaning. Pinch the text to make it bigger or smaller.").demo(Tr.LEFT).need("view"));
+        s.add(new Tr.Step("Floating counter", "Menu, Floating counter: a bubble over other apps. Tap it to count, drag it "
+                + "anywhere, fling it at an edge to make it stick, drop it on the X to close it. It also comes up when you "
+                + "minimize the app."));
+        s.add(new Tr.Step("Home screen", "Profiles, then shortcut: a profile on your home screen, in its own window. "
+                + "Use an emoji as its icon: \uD83C\uDF04 for the morning adhkar, \uD83C\uDF06 for the evening."));
+        s.add(new Tr.Step("Ready?", "Quick start gets the morning and evening adhkar and their reminders ready. "
+                + "A bug or an idea? Settings has a link to the issues page."));
+        tour = new Tr(this, th, s, "Quick start", () -> quickStart(), () -> tourEnd());
+        tour.show();
+    }
+
+    // a row of the quick start: a label and a time to tap, which opens a clock (tm[at] hours, tm[at + 1] minutes)
+    LinearLayout trow(String label, final int[] tm, final int at) {
         LinearLayout r = new LinearLayout(this);
         r.setGravity(Gravity.CENTER_VERTICAL);
         r.setPadding(0, dp(6), 0, 0);
         r.addView(dtx(label, th.fg), new LinearLayout.LayoutParams(0, -2, 1f));
-        r.addView(h, new LinearLayout.LayoutParams(dp(56), -2));
-        r.addView(dtx(":", th.fg));
-        r.addView(m, new LinearLayout.LayoutParams(dp(56), -2));
+        final TextView t = dtx(N.hm(tm[at], tm[at + 1]), th.ac);
+        t.setTextSize(24);
+        t.setPadding(dp(12), dp(6), 0, dp(6));
+        t.setOnClickListener(v -> new android.app.TimePickerDialog(this, th.light ? android.R.style.Theme_DeviceDefault_Light_Dialog
+                : android.R.style.Theme_DeviceDefault_Dialog, (tp, h, mi) -> {
+            tm[at] = h;
+            tm[at + 1] = mi;
+            t.setText(N.hm(h, mi));
+        }, tm[at], tm[at + 1], android.text.format.DateFormat.is24HourFormat(this)).show());
+        r.addView(t);
         return r;
     }
 
     // Quick start: the morning and evening adhkar of the profile repo downloaded, and a reminder for each
-    // that stays until it is done, every day, at times that can be changed. Whatever is already there
+    // that stays until it is done, every day, at times that are picked on a clock. Whatever is already there
     // is left alone, so it is safe to run again.
     void quickStart() {
-        final LinearLayout card = sheet("Quick start", "Gets the morning and evening adhkar ready. What you already have is left as it is.", true, true);
+        final LinearLayout card = sheet("Quick start", "Gets the morning and evening adhkar ready. What you already have is left as it is.", true, false);
         final CheckBox ckd = new CheckBox(this), ckr = new CheckBox(this);
         ckd.setText("Download the morning and evening adhkar (needs internet)");
         ckr.setText("Remind me every day, until I have done them");
@@ -702,21 +788,10 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             c.setTextColor(th.fg);
             card.addView(c);
         }
-        final EditText[] t = new EditText[4]; // hour and minute of the morning, hour and minute of the evening
-        final int[] at = {5, 0, 16, 0};
-        for (int i = 0; i < 4; i++) {
-            t[i] = new EditText(this);
-            t[i].setInputType(InputType.TYPE_CLASS_NUMBER);
-            t[i].setFilters(new InputFilter[]{new InputFilter.LengthFilter(2)});
-            t[i].setText((at[i] < 10 ? "0" : "") + at[i]);
-            t[i].setTextColor(th.fg);
-            t[i].setGravity(Gravity.CENTER);
-            t[i].setSelectAllOnFocus(true);
-            t[i].setBackgroundTintList(android.content.res.ColorStateList.valueOf(th.dim));
-        }
-        card.addView(trow("Morning reminder", t[0], t[1]));
-        card.addView(trow("Evening reminder", t[2], t[3]));
-        card.addView(dtx("24-hour clock. They can be changed later in the menu: Reminders.", th.dim));
+        final int[] tm = {5, 0, 16, 0}; // hours and minutes of the morning and evening reminders
+        card.addView(trow("Morning reminder", tm, 0));
+        card.addView(trow("Evening reminder", tm, 2));
+        card.addView(dtx("Tap a time to change it. They can be changed later in the menu: Reminders.", th.dim));
         final TextView st = dtx("", th.fg);
         st.setPadding(0, dp(12), 0, 0);
         card.addView(st);
@@ -731,18 +806,6 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         }
         card.addView(bar);
         go.setOnClickListener(v -> {
-            final int[] tm = new int[4];
-            for (int i = 0; i < 4; i++) {
-                try {
-                    tm[i] = Integer.parseInt(t[i].getText().toString().trim());
-                } catch (Exception e) {
-                    tm[i] = -1;
-                }
-            }
-            if (tm[0] < 0 || tm[0] > 23 || tm[2] < 0 || tm[2] > 23 || tm[1] < 0 || tm[1] > 59 || tm[3] < 0 || tm[3] > 59) {
-                Toast.makeText(this, "Hours are 0 to 23 and minutes 0 to 59", Toast.LENGTH_SHORT).show();
-                return;
-            }
             final boolean dl = ckd.isChecked(), rm = ckr.isChecked();
             go.setEnabled(false);
             go.setText("Working...");
@@ -895,14 +958,14 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         return q.measureText(LB[i]) + dp(40);
     }
 
-    // default rectangle of element i: 0 menu, 1 adjust, 2 -1, 3 view, 4 dhikr text, 5 counter,
+    // default rectangle of element i: 0 menu, 1 reset, 2 -1, 3 view, 4 dhikr text, 5 counter,
     // 6 footer, 7 Do Not Disturb warning, 8 slide title. Symmetric about the middle of the screen, top to
     // bottom: menu and reset in the corners, warning, dhikr text, counter, (the view dots), slide title,
     // and a bottom row of -1, the footer and the focus button.
     // default layout as fractions of the screen: left, top, right, bottom of every element
     static final float[][] DF = {
         {0, 0, .25f, .0526f},             // menu
-        {.75f, 0, 1, .0526f},             // adjust
+        {.75f, 0, 1, .0526f},             // reset
         {0, .95f, .25f, .985f},           // -1
         {.75f, .95f, 1, .985f},           // view (the focus button)
         {0, .1064f, 1, .7440f},           // dhikr text
@@ -1327,7 +1390,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
     // Swipes (dhikr only), like reels: up = next slide (counts as done), down = previous slide,
     // left / right = next / previous view. A recognised swipe never counts as a tap or a hold.
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
-        if (Sh.isUp(this)) { // a sheet or a dialog: only it gets touches, and this touch is no swipe
+        if (Sh.isUp(this) && !Tr.passing(this)) { // a sheet or a dialog: only it gets touches, and this touch is no swipe (a tour step that asks for a tap or a swipe lets them through)
             if (e.getActionMasked() == MotionEvent.ACTION_DOWN) ign = true;
             return super.dispatchTouchEvent(e);
         }
@@ -1541,6 +1604,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         Runnable r = () -> {
             apply(t);
             draw();
+            tourDo(t < 2 ? "swipe" : "view");
         };
         if (cv) r.run();
         else if (h) flip(dx < 0 ? -1 : 1, 0, r);
@@ -2347,6 +2411,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             boolean done = fin && nx >= k;
             z(done ? vl : c0 > 1 && cn[cur] % c0 == 0 ? vc : vt);
             cur = nx;
+            if (fin) tourDo("advance");
             if (done) {
                 N.done(this, pf); // a kept reminder of this profile goes away
                 em = EM[new Random().nextInt(EM.length)];
@@ -2358,6 +2423,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             z(mx > 0 && n == mx ? vl : n % st == 0 ? vc : vt);
             if (n % st == 0 || mx > 0 && n == mx) N.done(this, ""); // a lap (or the goal) of the plain counter
         }
+        tourDo("tap");
         draw();
     }
 
@@ -2411,6 +2477,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             n--;
             keepN();
         }
+        tourDo("minus");
         z(vt);
         draw();
     }
