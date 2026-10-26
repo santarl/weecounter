@@ -739,12 +739,12 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             }
         }));
         s.add(new Tr.Step("Profiles", "That was the simple counter. A profile is a dhikr made of slides, like the morning and "
-                + "evening adhkar: each slide counts to its own target, and the next one comes by itself. Next shows a small sample."));
+                + "evening adhkar: each slide counts to its own target, and the next one comes by itself. Next shows a small sample.").clear());
         s.add(new Tr.Step("A slide", "This slide counts to 3. Tap three times: the next slide comes by itself.").demo(Tr.TAP)
-                .need("advance").enter(() -> tourSample()));
-        s.add(new Tr.Step("Slides", "Swipe up for the next slide and down for the one before.").demo(Tr.UP).need("swipe"));
+                .need("advance").enter(() -> tourSample()).clear());
+        s.add(new Tr.Step("Slides", "Swipe up for the next slide and down for the one before.").demo(Tr.UP).need("swipe").clear());
         s.add(new Tr.Step("Views", "Swipe left or right for the other views of a slide: the Arabic, the transliteration, the "
-                + "meaning. Pinch the text to make it bigger or smaller.").demo(Tr.LEFT).need("view"));
+                + "meaning. Pinch the text to make it bigger or smaller.").demo(Tr.LEFT).need("view").clear());
         s.add(new Tr.Step("Floating counter", "Menu, Floating counter: a bubble over other apps. Tap it to count, drag it "
                 + "anywhere, fling it at an edge to make it stick, drop it on the X to close it. It also comes up when you "
                 + "minimize the app."));
@@ -752,7 +752,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
                 + "Use an emoji as its icon: \uD83C\uDF04 for the morning adhkar, \uD83C\uDF06 for the evening."));
         s.add(new Tr.Step("Ready?", "Quick start gets the morning and evening adhkar and their reminders ready. "
                 + "A bug or an idea? Settings has a link to the issues page."));
-        tour = new Tr(this, th, s, "Quick start", () -> quickStart(), () -> tourEnd());
+        tour = new Tr(this, th, s, "Quick start", () -> quickStart(), () -> tourEnd(), new View[]{se, rs, dn, vw, bot, ttl, pg, dt}, dl);
         tour.show();
     }
 

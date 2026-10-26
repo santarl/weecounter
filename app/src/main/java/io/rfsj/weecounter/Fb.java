@@ -32,7 +32,9 @@ import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
+import android.view.Display;
 import android.view.MotionEvent;
+import android.view.Surface;
 import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -58,12 +60,15 @@ public class Fb extends Service {
     SharedPreferences p;
     Th th;
     Bb bb;                            // the bubble
-    Xt xt, it;                        // the X and (in a profile) the i, only while the bubble is picked up
+    Xt xt, it, ct, ot;                // the X, the i (in a profile), the cog and the open button: only while the bubble is picked up
     Sp speech;                        // the speech bubble, only while it is shown
     Runnable fadeR;                   // what fades it out
     WindowManager.LayoutParams bp, xp, yp;
     float u;                          // one dp in px
     int size, W, H;                   // the bubble's size, the screen's size (px)
+    int bx, by, halo;                 // the bubble's top left corner (it may be partly off the screen), and the room round it in its window
+    float fu, fv;                     // the middle of the bubble, as a fraction of the screen in its natural position (see toFrac)
+    int rot;                          // the way the screen is turned (Surface.ROTATION_*)
     boolean dragging;                 // the bubble is being dragged
     String last = "";                 // profile:slide the speech bubble last saw ("" = none yet)
     static final long[] BUZZ_NEAR = {0, 25};          // the bubble got over the X: a short tick
@@ -90,16 +95,9 @@ public class Fb extends Service {
         size = sizePx();
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel("fb", "Floating counter", NotificationManager.IMPORTANCE_LOW));
-        // a tap on the notification opens the window of what is counted: the profile's own window (the
-        // same intent as its shortcut, so an open window of it comes to the front), or the main window
-        // (a window opened for one profile has that profile in its address, "bw"; the main window, where
-        // a profile is just the one selected, is opened like the launcher does, or it would be opened twice)
-        String bt = prof(), bw = p.getString("bw", "");
+        String bt = prof();
         if (bt != null && !getSharedPreferences("d", 0).contains(bt)) bt = null; // the profile is gone
-        if (!bw.isEmpty() && !getSharedPreferences("d", 0).contains(bw)) bw = "";
-        Intent open = bw.isEmpty()
-                ? new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClass(this, M.class)
-                : new Intent(this, M.class).setAction(Intent.ACTION_VIEW).setData(Uri.parse("wee://profile/" + Uri.encode(bw)));
+        Intent open = openIntent();
         Notification nf = new Notification.Builder(this, "fb").setSmallIcon(N.small())
                 .setContentTitle("Floating counter: " + (bt == null ? "plain counter" : bt))
                 .setContentText("Tap here to open it. Tap the bubble to count, hold it to move it.")
@@ -121,13 +119,26 @@ public class Fb extends Service {
 
         bb = new Bb();
         refresh();
-        bp = new WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.TRANSLUCENT);
+        // The window is a little bigger than the bubble, so that the bubble can swell in it (it does when it is
+        // picked up) without being cut off; it lets the bubble hang partly off the screen, and it is laid out
+        // in the whole screen, so what is counted from the edges is the same for every window.
+        halo = (int) (size * .1f);
+        bp = new WindowManager.LayoutParams(size + 2 * halo, size + 2 * halo, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT);
         bp.gravity = Gravity.TOP | Gravity.START;
-        bp.x = p.getInt("bx", W - size);
-        bp.y = p.getInt("by", H / 3);
-        clamp();
+        if (p.contains("bu")) {
+            fu = p.getFloat("bu", 1f);
+            fv = p.getFloat("bv", .33f);
+            fromFrac();
+        } else { // the first time: at the right edge, a third of the way down
+            bx = W - size;
+            by = H / 3;
+            clampB();
+            toFrac();
+        }
+        bp.x = bx - halo;
+        bp.y = by - halo;
         try {
             wm.addView(bb, bp);
         } catch (RuntimeException e) { // the permission was taken back
@@ -147,7 +158,7 @@ public class Fb extends Service {
     @Override public void onConfigurationChanged(Configuration c) {
         super.onConfigurationChanged(c);
         metrics();
-        resize();
+        relayout(); // the screen has turned: the bubble stays where it was on the phone
     }
 
     @Override public void onDestroy() {
@@ -163,10 +174,14 @@ public class Fb extends Service {
         super.onDestroy();
     }
 
+    // the size of the whole screen (with the bars) and the way it is turned
     void metrics() {
-        DisplayMetrics dm = getResources().getDisplayMetrics();
+        DisplayMetrics dm = new DisplayMetrics();
+        Display d = wm.getDefaultDisplay();
+        d.getRealMetrics(dm);
         W = dm.widthPixels;
         H = dm.heightPixels;
+        rot = d.getRotation();
     }
 
     // The diameter in px: the setting, or 67dp (the old 56dp and a fifth more) when it is 0.
@@ -175,44 +190,146 @@ public class Fb extends Service {
         return Math.max((int) (24 * u), Math.min(d > 0 ? d : (int) (67 * u), Math.min(W, H) / 2));
     }
 
+    // a new size from the setting, round the same middle
     void resize() {
+        toFrac();
+        relayout();
+    }
+
+    // The size or the screen changed: the window is made again from the size and from where the bubble
+    // is on the phone (fu, fv), which stays the same when the screen turns.
+    void relayout() {
+        if (bp == null) return;
         size = sizePx();
-        bp.width = size;
-        bp.height = size;
-        clamp();
+        halo = (int) (size * .1f);
+        bp.width = size + 2 * halo;
+        bp.height = size + 2 * halo;
+        fromFrac();
+        place();
+    }
+
+    // the window follows the bubble
+    void place() {
+        bp.x = bx - halo;
+        bp.y = by - halo;
         try {
             wm.updateViewLayout(bb, bp);
         } catch (RuntimeException ignored) {
         }
     }
 
-    // remembers where the bubble is
+    // How much of the bubble may be off the screen: next to an edge it hangs partly over it, as docked.
+    int hang() {
+        return (int) (size * .45f);
+    }
+
+    void clampB() {
+        bx = Math.max(-hang(), Math.min(W - size + hang(), bx));
+        by = Math.max(-hang(), Math.min(H - size + hang(), by));
+    }
+
+    // The middle of the bubble as a fraction of the screen the way it is when the phone is held upright,
+    // whichever way the screen is turned now (fu to the right, fv down). When the screen turns the
+    // bubble is put back at the same fractions, so it stays where it was on the phone, not where it was
+    // on the screen.
+    void toFrac() {
+        float cx = (bx + size / 2f) / W, cy = (by + size / 2f) / H;
+        switch (rot) {
+            case Surface.ROTATION_90:
+                fu = 1 - cy;
+                fv = cx;
+                break;
+            case Surface.ROTATION_180:
+                fu = 1 - cx;
+                fv = 1 - cy;
+                break;
+            case Surface.ROTATION_270:
+                fu = cy;
+                fv = 1 - cx;
+                break;
+            default:
+                fu = cx;
+                fv = cy;
+        }
+    }
+
+    void fromFrac() {
+        float cx, cy;
+        switch (rot) {
+            case Surface.ROTATION_90:
+                cx = fv;
+                cy = 1 - fu;
+                break;
+            case Surface.ROTATION_180:
+                cx = 1 - fu;
+                cy = 1 - fv;
+                break;
+            case Surface.ROTATION_270:
+                cx = 1 - fv;
+                cy = fu;
+                break;
+            default:
+                cx = fu;
+                cy = fv;
+        }
+        bx = Math.round(cx * W - size / 2f);
+        by = Math.round(cy * H - size / 2f);
+        clampB();
+    }
+
+    // remembers where the bubble is on the phone
     void save() {
-        p.edit().putInt("bx", bp.x).putInt("by", bp.y).apply();
+        toFrac();
+        p.edit().putFloat("bu", fu).putFloat("bv", fv).apply();
     }
 
-    void clamp() {
-        bp.x = Math.max(0, Math.min(W - size, bp.x));
-        bp.y = Math.max(0, Math.min(H - size, bp.y));
+    // the intent of the window of what is counted: the profile's own window (the same intent as its
+    // shortcut, so an open window of it comes to the front), or the main window (a window opened for one
+    // profile has that profile in its address, "bw"; the main window, where a profile is just the one
+    // selected, is opened like the launcher does, or it would be opened twice)
+    Intent openIntent() {
+        String bw = p.getString("bw", "");
+        if (!bw.isEmpty() && !getSharedPreferences("d", 0).contains(bw)) bw = "";
+        return bw.isEmpty()
+                ? new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setClass(this, M.class)
+                : new Intent(this, M.class).setAction(Intent.ACTION_VIEW).setData(Uri.parse("wee://profile/" + Uri.encode(bw)));
     }
 
-    // The targets at the bottom while the bubble is picked up: the X (drop it there to close it) and,
-    // in a profile, the i next to it (drop it there to see the current slide).
+    // dropped on the cog: the customising of the bubble (not made yet)
+    void customise() {
+        Toast.makeText(this, "Customising the bubble comes in the next update", Toast.LENGTH_SHORT).show();
+    }
+
+    // dropped on the open button: the app, on the window of what is counted
+    void openApp() {
+        try {
+            startActivity(openIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (RuntimeException e) {
+            Toast.makeText(this, "Could not open the app", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // The targets while the bubble is picked up. At the bottom: the X (drop it there to close it) and, in a
+    // profile, the i next to it (drop it there to see the current slide). At the top, the same distance
+    // from the edge: the cog (to customise the bubble) and a button that opens the app.
     void showX() {
         if (xt != null) return;
         boolean info = prof() != null;
-        xt = target(0, info ? -44 : 0);
-        if (info) it = target(1, 44);
+        xt = target(0, info ? -44 : 0, false);
+        if (info) it = target(1, 44, false);
+        ct = target(2, -44, true);
+        ot = target(3, 44, true);
     }
 
-    // kind 0 is the X, 1 the i; dx: dp from the middle of the screen
-    Xt target(int kind, int dx) {
+    // kind 0 is the X, 1 the i, 2 the cog, 3 open the app; dx: dp from the middle of the screen
+    Xt target(int kind, int dx, boolean top) {
         Xt t = new Xt(kind);
         int d = (int) (64 * u);
         WindowManager.LayoutParams lp = new WindowManager.LayoutParams(d, d, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT);
-        lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT);
+        lp.gravity = (top ? Gravity.TOP : Gravity.BOTTOM) | Gravity.CENTER_HORIZONTAL;
         lp.x = (int) (dx * u);
         lp.y = (int) (48 * u);
         wm.addView(t, lp);
@@ -220,7 +337,7 @@ public class Fb extends Service {
     }
 
     void hideX() {
-        for (Xt t : new Xt[]{xt, it}) {
+        for (Xt t : new Xt[]{xt, it, ct, ot}) {
             if (t == null) continue;
             try {
                 wm.removeView(t);
@@ -229,13 +346,17 @@ public class Fb extends Service {
         }
         xt = null;
         it = null;
+        ct = null;
+        ot = null;
     }
 
-    // which target the middle of the bubble is over: 0 none, 1 the X, 2 the i
+    // which target the middle of the bubble is over: 0 none, 1 the X, 2 the i, 3 the cog, 4 open the app
     int over() {
-        float bx = bp.x + size / 2f, by = bp.y + size / 2f, y = H - 80 * u, dx = it != null ? 44 * u : 0;
-        if (Math.hypot(bx - (W / 2f - dx), by - y) < 46 * u) return 1;
-        if (it != null && Math.hypot(bx - (W / 2f + dx), by - y) < 46 * u) return 2;
+        float cx = bx + size / 2f, cy = by + size / 2f, yb = H - 80 * u, yt = 80 * u, dx = it != null ? 44 * u : 0;
+        if (Math.hypot(cx - (W / 2f - dx), cy - yb) < 46 * u) return 1;
+        if (it != null && Math.hypot(cx - (W / 2f + dx), cy - yb) < 46 * u) return 2;
+        if (Math.hypot(cx - (W / 2f - 44 * u), cy - yt) < 46 * u) return 3;
+        if (Math.hypot(cx - (W / 2f + 44 * u), cy - yt) < 46 * u) return 4;
         return 0;
     }
 
@@ -408,20 +529,20 @@ public class Fb extends Service {
         }
 
         @Override protected void onDraw(Canvas c) {
-            float r = getWidth() / 2f;
+            float r = size / 2f, cx = getWidth() / 2f, cy = getHeight() / 2f; // in the middle of its window, which has room to swell in
             q.setStyle(Paint.Style.FILL);
             q.setColor(th.ac);
-            c.drawCircle(r, r, r - 2 * u, q);
+            c.drawCircle(cx, cy, r - 2 * u, q);
             q.setStyle(Paint.Style.STROKE);
             q.setStrokeWidth(2 * u);
             q.setColor((th.fg & 0xFFFFFF) | 0x99000000);
-            c.drawCircle(r, r, r - 2 * u, q);
+            c.drawCircle(cx, cy, r - 2 * u, q);
             q.setStyle(Paint.Style.FILL);
             q.setColor(th.bg);
             q.setTextSize(24 * u * r / (33.5f * u)); // grows with the bubble
             float w = q.measureText(s);
             if (w > r * 1.45f) q.setTextSize(q.getTextSize() * r * 1.45f / w); // long text shrinks to fit
-            c.drawText(s, r, r - (q.descent() + q.ascent()) / 2, q);
+            c.drawText(s, cx, cy - (q.descent() + q.ascent()) / 2, q);
         }
 
         // a tap counts; a drag moves the bubble as soon as the finger has really moved, and where it
@@ -436,8 +557,8 @@ public class Fb extends Service {
                 case MotionEvent.ACTION_DOWN:
                     sx = e.getRawX();
                     sy = e.getRawY();
-                    ox = bp.x;
-                    oy = bp.y;
+                    ox = bx;
+                    oy = by;
                     drag = false;
                     if (speech != null && speech.sticky) hideSay(); // any input puts the info away
                     return true;
@@ -452,19 +573,18 @@ public class Fb extends Service {
                         showX();
                         animate().scaleX(1.15f).scaleY(1.15f).setDuration(100);
                     }
-                    bp.x = ox + (int) dx;
-                    bp.y = oy + (int) dy;
-                    clamp();
-                    wm.updateViewLayout(this, bp);
+                    bx = ox + (int) dx;
+                    by = oy + (int) dy;
+                    clampB();
+                    place();
                     int t = over();
                     if (xt != null) {
                         if (t != 0 && t != hotT) play(BUZZ_NEAR); // got over a target
                         hotT = t;
-                        xt.hot = t == 1;
-                        xt.invalidate();
-                        if (it != null) {
-                            it.hot = t == 2;
-                            it.invalidate();
+                        for (Xt x : new Xt[]{xt, it, ct, ot}) {
+                            if (x == null) continue;
+                            x.hot = t == x.kind + 1;
+                            x.invalidate();
                         }
                     }
                     return true;
@@ -495,36 +615,38 @@ public class Fb extends Service {
                 stopSelf();
                 return;
             }
-            if (t == 2) { // the i: the bubble goes back where it was picked up, then the info shows
+            if (t >= 2) { // the i, the cog, open: the bubble goes back where it was picked up, then it happens
                 play(BUZZ_INFO);
                 hideX();
-                glide(ox, oy, () -> info());
+                Runnable act;
+                if (t == 2) act = () -> info();
+                else if (t == 3) act = () -> customise();
+                else act = () -> openApp();
+                glide(ox, oy, act);
                 return;
             }
             hideX();
-            if (Math.hypot(vx, vy) > 800 * u) {
-                int tx = bp.x, ty = bp.y;
-                if (Math.abs(vx) >= Math.abs(vy)) tx = vx < 0 ? 0 : W - size;
-                else ty = vy < 0 ? 0 : H - size;
+            if (Math.hypot(vx, vy) > 800 * u) { // thrown: docked at the edge it was thrown at, partly off the screen
+                int tx = bx, ty = by;
+                if (Math.abs(vx) >= Math.abs(vy)) tx = vx < 0 ? -hang() : W - size + hang();
+                else ty = vy < 0 ? -hang() : H - size + hang();
                 glide(tx, ty, null);
             } else {
+                clampB();
                 save();
             }
         }
 
         void glide(final int tx, final int ty, final Runnable after) {
-            final int fx = bp.x, fy = bp.y;
+            final int fx = bx, fy = by;
             ValueAnimator a = ValueAnimator.ofFloat(0f, 1f);
             a.setDuration(240);
             a.setInterpolator(new DecelerateInterpolator());
             a.addUpdateListener(va -> {
                 float f = (Float) va.getAnimatedValue();
-                bp.x = fx + (int) ((tx - fx) * f);
-                bp.y = fy + (int) ((ty - fy) * f);
-                try {
-                    wm.updateViewLayout(this, bp);
-                } catch (RuntimeException ignored) {
-                }
+                bx = fx + (int) ((tx - fx) * f);
+                by = fy + (int) ((ty - fy) * f);
+                place();
             });
             a.addListener(new AnimatorListenerAdapter() {
                 @Override public void onAnimationEnd(Animator an) {
@@ -544,9 +666,9 @@ public class Fb extends Service {
         hideSay();
         if (text == null || text.isEmpty()) return;
         float tl = 14 * u, m = 6 * u, pad = 12 * u;                  // tail, room for the outline, padding
-        float cx = bp.x + size / 2f, cy = bp.y + size / 2f;
+        float cx = bx + size / 2f, cy = by + size / 2f;
         boolean right = cx > W / 2f;                                 // head on the right: the bubble goes to its left
-        float room = (right ? bp.x : W - bp.x - size) - 4 * u - tl - 2 * m;
+        float room = (right ? bx : W - bx - size) - 4 * u - tl - 2 * m;
         float bw = Math.max(110 * u, Math.min(280 * u, room));       // the body's width
         float most = H - 24 * u - 2 * m - 2 * pad;                   // the most height the text may have
         float ts = 15 * u;
@@ -565,10 +687,11 @@ public class Fb extends Service {
         int ww = (int) (bw + tl + 2 * m), wh = (int) (bh + 2 * m);
         yp = new WindowManager.LayoutParams(ww, wh, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                         | (sticky ? WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
                         : WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE), PixelFormat.TRANSLUCENT);
         yp.gravity = Gravity.TOP | Gravity.START;
-        yp.x = Math.max(0, Math.min(W - ww, (int) (right ? bp.x - 4 * u - ww : bp.x + size + 4 * u)));
+        yp.x = Math.max(0, Math.min(W - ww, (int) (right ? bx - 4 * u - ww : bx + size + 4 * u)));
         yp.y = Math.max(0, Math.min(H - wh, (int) (cy - wh / 2f)));
         final Sp v = new Sp(sl, bw, bh, tl, m, pad, cy - yp.y, right, sticky);
         v.setAlpha(0f);
@@ -662,8 +785,8 @@ public class Fb extends Service {
         }
     }
 
-    // a target at the bottom, bigger and coloured while the bubble is over it: kind 0 the X (warning
-    // colour), kind 1 the i in a circle (accent colour)
+    // a target, bigger and coloured while the bubble is over it: kind 0 the X (warning colour), 1 the i in a
+    // circle, 2 a cog, 3 a window with an arrow out of it (open the app); the last three in the accent colour
     class Xt extends View {
         final int kind;
         boolean hot;
@@ -677,23 +800,46 @@ public class Fb extends Service {
 
         @Override protected void onDraw(Canvas c) {
             float r = getWidth() / 2f;
+            int disc = hot ? (kind == 0 ? th.warn : th.ac) : 0xCC202020;
             q.setStyle(Paint.Style.FILL);
-            q.setColor(hot ? (kind == 0 ? th.warn : th.ac) : 0xCC202020);
+            q.setColor(disc);
             c.drawCircle(r, r, hot ? r : r * .85f, q);
             q.setStyle(Paint.Style.STROKE);
             q.setStrokeWidth(3 * u);
-            q.setColor(kind == 1 && hot ? th.bg : 0xFFFFFFFF);
+            int ink = kind != 0 && hot ? th.bg : 0xFFFFFFFF;
+            q.setColor(ink);
             if (kind == 0) {
                 float a = r * (hot ? .36f : .3f);
                 c.drawLine(r - a, r - a, r + a, r + a, q);
                 c.drawLine(r - a, r + a, r + a, r - a, q);
-            } else {
+            } else if (kind == 1) {
                 float g = r * (hot ? .55f : .5f); // the ring of the i, with the dot and the stem inside it
                 c.drawCircle(r, r, g, q);
                 q.setStyle(Paint.Style.FILL);
                 c.drawCircle(r, r - g * .42f, 2 * u, q);
                 q.setStyle(Paint.Style.STROKE);
                 c.drawLine(r, r - g * .1f, r, r + g * .5f, q);
+            } else if (kind == 2) {
+                float g = r * (hot ? .42f : .38f); // a cog: eight teeth round a body that has a hole in it
+                q.setStyle(Paint.Style.FILL);
+                for (int k = 0; k < 8; k++) {
+                    c.save();
+                    c.rotate(45 * k, r, r);
+                    c.drawRoundRect(r - g * .22f, r - g * 1.5f, r + g * .22f, r - g * .85f, 2 * u, 2 * u, q);
+                    c.restore();
+                }
+                c.drawCircle(r, r, g * 1.05f, q);
+                q.setColor(disc);
+                c.drawCircle(r, r, g * .45f, q);
+            } else {
+                float g = r * (hot ? .45f : .4f); // a window with its top right corner open, and an arrow out of it
+                c.drawLine(r - g, r - g, r - g * .1f, r - g, q);
+                c.drawLine(r - g, r - g, r - g, r + g, q);
+                c.drawLine(r - g, r + g, r + g, r + g, q);
+                c.drawLine(r + g, r + g, r + g, r + g * .15f, q);
+                c.drawLine(r - g * .15f, r + g * .15f, r + g * 1.05f, r - g * 1.05f, q);
+                c.drawLine(r + g * 1.05f, r - g * 1.05f, r + g * .35f, r - g * 1.05f, q);
+                c.drawLine(r + g * 1.05f, r - g * 1.05f, r + g * 1.05f, r - g * .35f, q);
             }
         }
     }

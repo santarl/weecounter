@@ -32,6 +32,7 @@ final class Tr extends FrameLayout {
     static class Step {
         final String title, text;
         int demo = NONE;
+        boolean dim = true; // the screen goes dim (false: it stays as it is, only the lit parts get a ring)
         String need;
         Runnable enter;
         View[] lit = new View[0];
@@ -43,6 +44,11 @@ final class Tr extends FrameLayout {
 
         Step demo(int d) {
             demo = d;
+            return this;
+        }
+
+        Step clear() {
+            dim = false;
             return this;
         }
 
@@ -68,6 +74,8 @@ final class Tr extends FrameLayout {
     final String lastLabel; // the button of the last step
     final Runnable lastAct; // what it does, after the tour has closed (null: only close)
     final Runnable onClose; // runs when the tour has closed, however it was closed
+    final View[] ui;        // the parts of the screen the card had better not cover
+    final TextView words;   // the text of the slide (its lines are what is covered, not the whole box)
     final float u;
     final Paint dim = new Paint(Paint.ANTI_ALIAS_FLAG), ring = new Paint(Paint.ANTI_ALIAS_FLAG),
             fing = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -82,7 +90,7 @@ final class Tr extends FrameLayout {
     boolean seen; // a sheet has been up since this step began (a "sheet" step waits for it to close)
     Runnable poll; // while a "sheet" step waits: looks every so often whether the sheet has been closed
 
-    Tr(Activity a, Th th, ArrayList<Step> steps, String lastLabel, Runnable lastAct, Runnable onClose) {
+    Tr(Activity a, Th th, ArrayList<Step> steps, String lastLabel, Runnable lastAct, Runnable onClose, View[] ui, TextView words) {
         super(a);
         this.a = a;
         this.th = th;
@@ -90,6 +98,8 @@ final class Tr extends FrameLayout {
         this.lastLabel = lastLabel;
         this.lastAct = lastAct;
         this.onClose = onClose;
+        this.ui = ui;
+        this.words = words;
         u = a.getResources().getDisplayMetrics().density;
         setContentDescription(Sh.MARK);
         setWillNotDraw(false);
@@ -205,9 +215,29 @@ final class Tr extends FrameLayout {
             holes.add(r);
             sy += r.centerY();
         }
+        // The card goes where it covers the least of the screen: at the top, at the bottom or in the middle;
+        // a part that is lit counts for much more, so it is never covered if there is room.
+        int mx = Sh.dp(a, 24);
+        card.measure(MeasureSpec.makeMeasureSpec(Math.max(1, getWidth() - 2 * mx), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+        int ch = card.getMeasuredHeight(), gap = Sh.dp(a, 48), hh = getHeight();
+        int[] ys = {gap, hh - ch - gap, (hh - ch) / 2};
+        ArrayList<RectF> obs = obstacles(me);
+        float best = Float.MAX_VALUE;
+        int top = ys[0];
+        for (int y : ys) {
+            RectF cr = new RectF(mx, y, getWidth() - mx, y + ch);
+            float cost = 0;
+            for (RectF h : holes) cost += 8 * overlap(cr, h);
+            for (RectF o : obs) cost += overlap(cr, o);
+            if (cost < best) {
+                best = cost;
+                top = y;
+            }
+        }
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) card.getLayoutParams();
-        if (!holes.isEmpty()) lp.gravity = sy / holes.size() < getHeight() / 2f ? Gravity.BOTTOM : Gravity.TOP;
-        else lp.gravity = s.demo != NONE ? Gravity.BOTTOM : Gravity.CENTER;
+        lp.gravity = Gravity.TOP;
+        lp.setMargins(mx, top, mx, 0);
         card.setLayoutParams(lp);
         if (anim != null) anim.cancel();
         anim = null;
@@ -224,6 +254,33 @@ final class Tr extends FrameLayout {
             anim.start();
         }
         invalidate();
+    }
+
+    // the parts of the screen (in this view) that the card had better not cover: the buttons, the counter,
+    // the title and footer, and the lines of the slide's text
+    private ArrayList<RectF> obstacles(int[] me) {
+        ArrayList<RectF> out = new ArrayList<>();
+        int[] tp = new int[2];
+        for (View v : ui) {
+            if (v == null || v.getVisibility() != View.VISIBLE || v.getWidth() == 0) continue;
+            v.getLocationInWindow(tp);
+            out.add(new RectF(tp[0] - me[0], tp[1] - me[1], tp[0] - me[0] + v.getWidth(), tp[1] - me[1] + v.getHeight()));
+        }
+        if (words != null && words.getVisibility() == View.VISIBLE && words.getLayout() != null && words.getWidth() > 0) {
+            android.text.Layout l = words.getLayout();
+            words.getLocationInWindow(tp);
+            float lw = 0, inner = words.getHeight() - words.getTotalPaddingTop() - words.getTotalPaddingBottom();
+            for (int i = 0; i < l.getLineCount(); i++) lw = Math.max(lw, l.getLineWidth(i));
+            float top = tp[1] - me[1] + words.getTotalPaddingTop() + Math.max(0, (inner - l.getHeight()) / 2f);
+            float mid = tp[0] - me[0] + words.getWidth() / 2f;
+            out.add(new RectF(mid - lw / 2f, top, mid + lw / 2f, top + Math.min(l.getHeight(), inner)));
+        }
+        return out;
+    }
+
+    private static float overlap(RectF p, RectF q) {
+        float w = Math.min(p.right, q.right) - Math.max(p.left, q.left), h = Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top);
+        return w > 0 && h > 0 ? w * h : 0;
     }
 
     // the user did something (see Step.need): if the step is waiting for it, the next one comes in a moment
@@ -263,7 +320,7 @@ final class Tr extends FrameLayout {
         path.setFillType(Path.FillType.EVEN_ODD); // the dim screen with a hole for every lit part
         path.addRect(0, 0, getWidth(), getHeight(), Path.Direction.CW);
         for (RectF r : holes) path.addRoundRect(r, rr, rr, Path.Direction.CW);
-        c.drawPath(path, dim);
+        if (steps.get(at).dim) c.drawPath(path, dim);
         for (RectF r : holes) c.drawRoundRect(r, rr, rr, ring);
         Step s = steps.get(at);
         if (s.demo == NONE) return;
