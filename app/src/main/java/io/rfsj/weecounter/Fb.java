@@ -34,12 +34,14 @@ import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.Display;
 import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.Surface;
 import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
+import android.view.animation.LinearInterpolator;
 import android.widget.Toast;
 
 import java.util.Arrays;
@@ -70,12 +72,21 @@ public class Fb extends Service {
     float fu, fv;                     // the middle of the bubble, as a fraction of the screen in its natural position (see toFrac)
     int rot;                          // the way the screen is turned (Surface.ROTATION_*)
     boolean dragging;                 // the bubble is being dragged
+    int style;                        // the look of the bubble (see Sy)
+    Cz cz;                            // the customising, while it is up
     String last = "";                 // profile:slide the speech bubble last saw ("" = none yet)
     static final long[] BUZZ_NEAR = {0, 25};          // the bubble got over the X: a short tick
     static final long[] BUZZ_CLOSE = {0, 40, 60, 90};  // dropped on the X: two buzzes, the second longer
     static final long[] BUZZ_INFO = {0, 20, 40, 20};   // dropped on the i: two short ones
     final SharedPreferences.OnSharedPreferenceChangeListener nl = (sp, k) -> {
         if ("bs".equals(k)) resize();
+        if ("bstyle".equals(k)) { // a new look from the customising
+            style = Math.floorMod(p.getInt("bstyle", 0), Sy.COUNT);
+            if (bb != null) {
+                bb.sync();
+                bb.invalidate();
+            }
+        }
         if (k == null || k.equals("n") || k.equals("bt") || k.equals("pf") || k.equals("pm") || k.startsWith("cn:") || k.startsWith("cu:")
                 || k.startsWith("rp:") || k.startsWith("th")) // the app counted or changed profile, theme or repeats
             refresh();
@@ -90,6 +101,7 @@ public class Fb extends Service {
         wm = getSystemService(WindowManager.class);
         p = getSharedPreferences("p", 0);
         th = Th.get(this, p, "");
+        style = Math.floorMod(p.getInt("bstyle", 0), Sy.COUNT);
         u = getResources().getDisplayMetrics().density;
         metrics();
         size = sizePx();
@@ -157,6 +169,7 @@ public class Fb extends Service {
 
     @Override public void onConfigurationChanged(Configuration c) {
         super.onConfigurationChanged(c);
+        endCz(false);
         metrics();
         relayout(); // the screen has turned: the bubble stays where it was on the phone
     }
@@ -167,6 +180,7 @@ public class Fb extends Service {
         p.unregisterOnSharedPreferenceChangeListener(nl);
         hideX();
         hideSay();
+        endCz(false);
         try {
             wm.removeView(bb);
         } catch (RuntimeException ignored) {
@@ -295,9 +309,38 @@ public class Fb extends Service {
                 : new Intent(this, M.class).setAction(Intent.ACTION_VIEW).setData(Uri.parse("wee://profile/" + Uri.encode(bw)));
     }
 
-    // dropped on the cog: the customising of the bubble (not made yet)
+    // Dropped on the cog: the customising. The bubble is large in the middle of a dim screen and the real one is
+    // out of the way. A swipe left or right shows the next or the previous look (Sy), a pinch sets the size,
+    // the check mark keeps both, and a tap anywhere else leaves everything as it was.
     void customise() {
-        Toast.makeText(this, "Customising the bubble comes in the next update", Toast.LENGTH_SHORT).show();
+        if (cz != null) return;
+        cz = new Cz();
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(-1, -1, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT);
+        lp.gravity = Gravity.TOP | Gravity.START;
+        try {
+            wm.addView(cz, lp);
+        } catch (RuntimeException e) {
+            cz = null;
+            return;
+        }
+        bb.setVisibility(View.INVISIBLE);
+    }
+
+    // the customising is over: keep the look and the size (they are saved as the settings, so the bubble takes them
+    // at once), or not
+    void endCz(boolean keep) {
+        if (cz == null) return;
+        Cz z = cz;
+        cz = null;
+        if (keep) p.edit().putInt("bstyle", z.cur).putString("bs", "" + Math.round(z.sz)).apply();
+        z.stop();
+        try {
+            wm.removeView(z);
+        } catch (RuntimeException ignored) {
+        }
+        if (bb != null) bb.setVisibility(View.VISIBLE);
     }
 
     // dropped on the open button: the app, on the window of what is counted
@@ -407,12 +450,15 @@ public class Fb extends Service {
         M.Pr pr = pf == null ? null : load(pf);
         th = Th.get(this, p, pr != null ? pf : "");
         if (pr == null) {
-            int n = p.getInt("n", 0), mx = ni("mx", 0);
+            int n = p.getInt("n", 0), mx = ni("mx", 0), lap = Math.max(1, ni("st", 100));
             bb.s = mx > 0 ? n + "/" + mx : "" + n; // the goal, if there is one
+            bb.prog = mx > 0 ? Math.min(1f, n / (float) mx) : n > 0 && n % lap == 0 ? 1f : (n % lap) / (float) lap; // of the goal, or of the lap
             last = "";
         } else {
             int k = pr.c.length, cu = Math.max(0, Math.min(k, p.getInt("cu:" + pf, 0)));
-            bb.s = cu >= k ? "\u2713" : counts(pf, k)[cu] + "/" + pr.c[cu];
+            int had = cu >= k ? 0 : counts(pf, k)[cu];
+            bb.s = cu >= k ? "\u2713" : had + "/" + pr.c[cu];
+            bb.prog = cu >= k ? 1f : Math.min(1f, had / (float) Math.max(1, pr.c[cu])); // of the slide
             String old = last;
             last = pf + ":" + cu;
             // another slide while the app is not on screen: the speech bubble says which
@@ -520,6 +566,9 @@ public class Fb extends Service {
         int ox, oy;                   // where the bubble was then
         boolean drag;                 // the finger moved far enough: the bubble follows it
         int hotT;                     // the target it is over: 0 none, 1 the X, 2 the i
+        float prog;                   // how far the count has come, 0 to 1 (for the looks that show it)
+        float phase;                  // 0 to 1 over and over, for the looks that move
+        ValueAnimator pulse;          // moves the phase, only while the look moves
         VelocityTracker vt;
 
         Bb() {
@@ -528,21 +577,41 @@ public class Fb extends Service {
             q.setTextAlign(Paint.Align.CENTER);
         }
 
+        // in the middle of its window, which has room round it to swell in
         @Override protected void onDraw(Canvas c) {
-            float r = size / 2f, cx = getWidth() / 2f, cy = getHeight() / 2f; // in the middle of its window, which has room to swell in
-            q.setStyle(Paint.Style.FILL);
-            q.setColor(th.ac);
-            c.drawCircle(cx, cy, r - 2 * u, q);
-            q.setStyle(Paint.Style.STROKE);
-            q.setStrokeWidth(2 * u);
-            q.setColor((th.fg & 0xFFFFFF) | 0x99000000);
-            c.drawCircle(cx, cy, r - 2 * u, q);
-            q.setStyle(Paint.Style.FILL);
-            q.setColor(th.bg);
-            q.setTextSize(24 * u * r / (33.5f * u)); // grows with the bubble
-            float w = q.measureText(s);
-            if (w > r * 1.45f) q.setTextSize(q.getTextSize() * r * 1.45f / w); // long text shrinks to fit
-            c.drawText(s, cx, cy - (q.descent() + q.ascent()) / 2, q);
+            Sy.draw(c, style, getWidth() / 2f, getHeight() / 2f, size / 2f, s, th, u, phase, prog, q);
+        }
+
+        // the looks that move are redrawn all the time, the others only when something changes
+        void sync() {
+            boolean want = Sy.animated(style) && isAttachedToWindow();
+            if (want && pulse == null) {
+                pulse = ValueAnimator.ofFloat(0f, 1f);
+                pulse.setDuration(2400);
+                pulse.setRepeatCount(ValueAnimator.INFINITE);
+                pulse.setInterpolator(new LinearInterpolator());
+                pulse.addUpdateListener(va -> {
+                    phase = (Float) va.getAnimatedValue();
+                    invalidate();
+                });
+                pulse.start();
+            } else if (!want && pulse != null) {
+                pulse.cancel();
+                pulse = null;
+            }
+        }
+
+        @Override protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            sync();
+        }
+
+        @Override protected void onDetachedFromWindow() {
+            if (pulse != null) {
+                pulse.cancel();
+                pulse = null;
+            }
+            super.onDetachedFromWindow();
         }
 
         // a tap counts; a drag moves the bubble as soon as the finger has really moved, and where it
@@ -719,6 +788,140 @@ public class Fb extends Service {
         try {
             wm.removeView(v);
         } catch (RuntimeException ignored) {
+        }
+    }
+
+    // the screen of the customising: the look in the middle, its name and the size under it, and two buttons
+    class Cz extends View {
+        int cur, prev = -1, dir; // the look that is shown, the one that slides out, and which way
+        float off = 1;           // 0 to 1: the new look slides in as the old one slides out
+        float sz;                // the size (px)
+        float phase;             // for the looks that move
+        final float lo, hi;      // the smallest and the largest size
+        final Paint q = new Paint(Paint.ANTI_ALIAS_FLAG), tp = new Paint(Paint.ANTI_ALIAS_FLAG);
+        final ScaleGestureDetector sd;
+        float x0, y0;
+        boolean moved, scaled;
+        ValueAnimator slide, loop;
+
+        Cz() {
+            super(Fb.this);
+            cur = style;
+            sz = size;
+            lo = 24 * u;
+            hi = Math.min(W, H) / 2f;
+            tp.setTextAlign(Paint.Align.CENTER);
+            sd = new ScaleGestureDetector(Fb.this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                @Override public boolean onScale(ScaleGestureDetector d) {
+                    sz = Math.max(lo, Math.min(hi, sz * d.getScaleFactor()));
+                    invalidate();
+                    return true;
+                }
+            });
+            loop = ValueAnimator.ofFloat(0f, 1f);
+            loop.setDuration(2400);
+            loop.setRepeatCount(ValueAnimator.INFINITE);
+            loop.setInterpolator(new LinearInterpolator());
+            loop.addUpdateListener(va -> {
+                phase = (Float) va.getAnimatedValue();
+                if (Sy.animated(cur) || prev >= 0 && off < 1 && Sy.animated(prev)) invalidate();
+            });
+            loop.start();
+        }
+
+        void stop() {
+            loop.cancel();
+            if (slide != null) slide.cancel();
+        }
+
+        // d = 1: the next look comes in from the right, d = -1: the previous one from the left
+        void step(int d) {
+            if (slide != null) slide.cancel();
+            prev = cur;
+            cur = Math.floorMod(cur + d, Sy.COUNT);
+            dir = d;
+            off = 0;
+            slide = ValueAnimator.ofFloat(0f, 1f);
+            slide.setDuration(240);
+            slide.setInterpolator(new DecelerateInterpolator());
+            slide.addUpdateListener(va -> {
+                off = (Float) va.getAnimatedValue();
+                invalidate();
+            });
+            slide.start();
+        }
+
+        @Override public boolean onTouchEvent(MotionEvent e) {
+            sd.onTouchEvent(e);
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    x0 = e.getX();
+                    y0 = e.getY();
+                    moved = false;
+                    scaled = false;
+                    return true;
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    scaled = true;
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (Math.hypot(e.getX() - x0, e.getY() - y0) > ViewConfiguration.get(getContext()).getScaledTouchSlop()) moved = true;
+                    return true;
+                case MotionEvent.ACTION_UP: {
+                    if (scaled || sd.isInProgress()) return true;
+                    float dx = e.getX() - x0, dy = e.getY() - y0;
+                    if (Math.abs(dx) > 56 * u && Math.abs(dx) > 2 * Math.abs(dy)) {
+                        step(dx < 0 ? 1 : -1);
+                    } else if (!moved) { // a tap: on the check mark it keeps the look, anywhere else it leaves
+                        endCz(Math.hypot(e.getX() - (W / 2f + 56 * u), e.getY() - (H - 96 * u)) < 36 * u);
+                    }
+                    return true;
+                }
+                default:
+                    return true;
+            }
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            float cx = W / 2f, cy = H * .42f, sh = W * .6f, by0 = H - 96 * u, br = 28 * u, k = 8 * u;
+            c.drawColor((th.bg & 0xFFFFFF) | 0xF2000000);
+            tp.setStyle(Paint.Style.FILL);
+            tp.setFakeBoldText(false);
+            tp.setColor(th.dim);
+            tp.setTextSize(15 * u);
+            c.drawText("Swipe for another look, pinch to resize", cx, 110 * u, tp);
+            c.drawText("The check mark keeps it, a tap anywhere else leaves it", cx, 132 * u, tp);
+            if (prev >= 0 && off < 1) Sy.draw(c, prev, cx - dir * off * sh, cy, sz / 2f, bb.s, th, u, phase, .65f, q);
+            Sy.draw(c, cur, cx + dir * (1 - off) * sh, cy, sz / 2f, bb.s, th, u, phase, .65f, q);
+            tp.setColor(th.fg);
+            tp.setTextSize(20 * u);
+            tp.setFakeBoldText(true);
+            c.drawText(Sy.NAMES[cur], cx, cy + sz / 2f + 56 * u, tp);
+            tp.setFakeBoldText(false);
+            tp.setColor(th.dim);
+            tp.setTextSize(14 * u);
+            c.drawText((cur + 1) + " of " + Sy.COUNT + "   " + Math.round(sz) + " px", cx, cy + sz / 2f + 82 * u, tp);
+            q.reset();
+            q.setAntiAlias(true);
+            q.setStyle(Paint.Style.FILL);
+            q.setColor((th.dim & 0xFFFFFF) | 0x44000000);
+            c.drawCircle(cx - 56 * u, by0, br, q); // cancel
+            q.setStyle(Paint.Style.STROKE);
+            q.setStrokeWidth(3 * u);
+            q.setStrokeCap(Paint.Cap.ROUND);
+            q.setStrokeJoin(Paint.Join.ROUND);
+            q.setColor(th.fg);
+            c.drawLine(cx - 56 * u - k, by0 - k, cx - 56 * u + k, by0 + k, q);
+            c.drawLine(cx - 56 * u - k, by0 + k, cx - 56 * u + k, by0 - k, q);
+            q.setStyle(Paint.Style.FILL);
+            q.setColor(th.ac);
+            c.drawCircle(cx + 56 * u, by0, br, q); // keep
+            q.setStyle(Paint.Style.STROKE);
+            q.setColor(th.bg);
+            Path ok = new Path();
+            ok.moveTo(cx + 56 * u - k, by0 + k * .1f);
+            ok.lineTo(cx + 56 * u - k * .3f, by0 + k * .8f);
+            ok.lineTo(cx + 56 * u + k, by0 - k * .8f);
+            c.drawPath(ok, q);
         }
     }
 

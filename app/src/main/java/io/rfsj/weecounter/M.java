@@ -746,7 +746,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
         s.add(new Tr.Step("Views", "Swipe left or right for the other views of a slide: the Arabic, the transliteration, the "
                 + "meaning. Pinch the text to make it bigger or smaller.").demo(Tr.LEFT).need("view").clear());
         s.add(new Tr.Step("Floating counter", "Menu, Floating counter: a bubble over other apps. Tap it to count, drag it "
-                + "anywhere, fling it at an edge to make it stick, drop it on the X to close it. It also comes up when you "
+                + "anywhere, fling it at an edge to make it stick, drop it on the X to close it or on the cog to change its look. It also comes up when you "
                 + "minimize the app."));
         s.add(new Tr.Step("Home screen", "Profiles, then shortcut: a profile on your home screen, in its own window. "
                 + "Use an emoji as its icon: \uD83C\uDF04 for the morning adhkar, \uD83C\uDF06 for the evening."));
