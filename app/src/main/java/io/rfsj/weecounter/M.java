@@ -2331,6 +2331,7 @@ public class M extends Activity implements View.OnClickListener, View.OnLongClic
             startActivity(new Intent(this, N.class));
         });
         mrow(card, Fb.on ? "Floating counter: on" : "Floating counter", () -> bubble());
+        mrow(card, "Quran", () -> startActivity(new Intent(this, Q.class)));
         mrow(card, "Help", () -> help(false));
         TextView no = sb("cancel", th.dim, v -> closeSheet());
         no.setGravity(Gravity.CENTER);

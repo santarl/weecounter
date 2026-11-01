@@ -90,6 +90,9 @@
             android:name=".B"
             android:exported="false"/>
         <activity
+            android:name=".Q"
+            android:exported="false"/>
+        <activity
             android:name=".S"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
