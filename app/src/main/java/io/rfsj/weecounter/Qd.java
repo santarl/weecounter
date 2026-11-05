@@ -1,6 +1,7 @@
 package io.rfsj.weecounter;
 
 import android.content.Context;
+import android.graphics.Typeface;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
@@ -203,17 +204,20 @@ final class Qd {
         return out;
     }
 
-    // The biggest text size (px, between min and max) at which s fits w wide and h high, with the line height
-    // mult times the usual (Arabic with its marks needs room above and below the line).
-    static float fit(CharSequence s, int w, float h, float min, float max, float mult) {
+    // The biggest text size (px, between min and max) at which s fits w wide and h high, in the font tf (null: the
+    // usual one), with the line height mult times the usual (Arabic with its marks needs room above and below the line).
+    // It breaks the lines the way the TextView of Q does (simple, no hyphens), so what fits here fits there.
+    static float fit(CharSequence s, int w, float h, float min, float max, float mult, Typeface tf) {
         if (w <= 0 || h <= 0 || s.length() == 0) return min;
         TextPaint tp = new TextPaint();
+        if (tf != null) tp.setTypeface(tf);
         float lo = min, hi = max;
         for (int i = 0; i < 9; i++) {
             float mid = (lo + hi) / 2;
             tp.setTextSize(mid);
             StaticLayout sl = StaticLayout.Builder.obtain(s, 0, s.length(), tp, w)
-                    .setAlignment(Layout.Alignment.ALIGN_CENTER).setLineSpacing(0, mult).build();
+                    .setAlignment(Layout.Alignment.ALIGN_CENTER).setLineSpacing(0, mult)
+                    .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE).setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE).build();
             if (sl.getHeight() <= h) lo = mid;
             else hi = mid;
         }
